@@ -148,15 +148,54 @@ def reconnect_ws(page: Page, logger=None) -> str:
 
 def dismiss_interaction_modal(page: Page, logger=None) -> bool:
     """
-    Detect and close interaction-modal overlay.
-    Trigger overlay closure by simulating mouse movement within iframe area.
+    Detect and close interaction-modal or cdk-overlay-backdrop.
+    Trigger overlay closure by simulating mouse movement or clicking the backdrop.
     
     Returns: True if successful, False if not found or failed
     """
     try:
-        modal = page.locator('div.interaction-modal')
+        # Check for multiple types of overlays
+        modal = page.locator('div.interaction-modal, div.cdk-overlay-backdrop')
         if modal.count() == 0 or not modal.first.is_visible(timeout=500):
             return False
+        
+        if logger:
+            logger.info("Overlay detected (modal or backdrop), attempting to close...")
+        
+        # Strategy 1: Mouse movement in iframe (works for interaction-modal)
+        iframe = page.locator('iframe[title="Preview"]')
+        if iframe.count() > 0:
+            iframe_box = iframe.first.bounding_box()
+            if iframe_box:
+                curr_x = iframe_box['x'] + random.randint(50, int(iframe_box['width']) - 50)
+                curr_y = iframe_box['y'] + random.randint(50, int(iframe_box['height']) - 50)
+                
+                for i in range(20):
+                    delta_x = random.randint(-30, 30)
+                    delta_y = random.randint(-20, 20)
+                    curr_x = max(iframe_box['x'] + 20, min(iframe_box['x'] + iframe_box['width'] - 20, curr_x + delta_x))
+                    curr_y = max(iframe_box['y'] + 20, min(iframe_box['y'] + iframe_box['height'] - 20, curr_y + delta_y))
+                    page.mouse.move(curr_x, curr_y)
+                    time.sleep(0.05)
+                    
+                    if modal.count() == 0 or not modal.first.is_visible(timeout=100):
+                        if logger:
+                            logger.info("Successfully closed overlay via movement")
+                        return True
+
+        # Strategy 2: If still visible, try clicking the backdrop itself to dismiss (common for cdk-overlays)
+        if modal.first.is_visible(timeout=500):
+            modal.first.click(timeout=2000)
+            if logger:
+                logger.info("Successfully closed overlay via backdrop click")
+            return True
+        
+        return False
+    except Exception as e:
+        if logger:
+            logger.debug(f"Error closing interaction-modal/backdrop: {e}")
+        return False
+
         
         if logger:
             logger.info("Interaction-modal detected, attempting to close...")

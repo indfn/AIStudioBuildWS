@@ -5,6 +5,7 @@ Integrates detection, loading, and management functions for JSON file and enviro
 
 import os
 import json
+import threading
 from dataclasses import dataclass
 from typing import List, Dict, Optional
 from utils.paths import cookies_dir
@@ -32,6 +33,7 @@ class CookieManager:
         self.logger = logger
         self._detected_sources: Optional[List[CookieSource]] = None
         self._cookie_cache: Dict[str, List[Dict]] = {}
+        self._save_lock = threading.Lock()
 
     def detect_all_sources(self) -> List[CookieSource]:
         """
@@ -201,6 +203,7 @@ class CookieManager:
         """
         Save cookies back to their source if the source is a file.
         Write atomically using a temporary file.
+        Uses a lock to prevent concurrent writes from multiple threads.
 
         Args:
             source: CookieSource object representing where these cookies came from
@@ -211,21 +214,22 @@ class CookieManager:
                 self.logger.debug(f"Skipping save for non-file cookie source: {source.type}")
             return
 
-        try:
-            cookie_path = cookies_dir() / source.identifier
-            tmp_path = cookie_path.with_suffix(".tmp")
-            
-            with open(tmp_path, "w", encoding="utf-8") as f:
-                json.dump(cookies, f, indent=2)
-            
-            os.replace(tmp_path, cookie_path)
-            
-            # Update cache so next load gets the fresh cookies
-            cache_key = str(source)
-            self._cookie_cache[cache_key] = cookies
-            
-            if self.logger:
-                self.logger.info(f"Successfully saved {len(cookies)} cookies to {source.identifier}")
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"Error saving cookies to {source.identifier}: {e}")
+        with self._save_lock:
+            try:
+                cookie_path = cookies_dir() / source.identifier
+                tmp_path = cookie_path.with_suffix(".tmp")
+                
+                with open(tmp_path, "w", encoding="utf-8") as f:
+                    json.dump(cookies, f, indent=2)
+                
+                os.replace(tmp_path, cookie_path)
+                
+                # Update cache so next load gets the fresh cookies
+                cache_key = str(source)
+                self._cookie_cache[cache_key] = cookies
+                
+                if self.logger:
+                    self.logger.info(f"Successfully saved {len(cookies)} cookies to {source.identifier}")
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"Error saving cookies to {source.identifier}: {e}")

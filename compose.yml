@@ -1,6 +1,11 @@
 services:
   aistudio-websocket-app:
     image: aistudio-websocket
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 7G
     build: .
     pull_policy: never
     container_name: aistudio-websocket-app

@@ -2,34 +2,108 @@ import os
 import signal
 import time
 import threading
+from datetime import datetime
 from playwright.sync_api import TimeoutError, Error as PlaywrightError
 from utils.logger import setup_logging
 from utils.cookie_manager import CookieManager
-from browser.navigation import handle_successful_navigation, KeepAliveError
+from browser.navigation import handle_successful_navigation, KeepAliveError, handle_popup_dialog
 from browser.cookie_validator import CookieValidator
 from camoufox.sync_api import Camoufox
 from utils.paths import logs_dir
-from utils.common import parse_headless_mode, ensure_dir
+from utils.common import parse_headless_mode, ensure_dir, get_next_refresh_time
 from utils.url_helper import extract_url_path, mask_url_for_logging, mask_path_for_logging
 
-def _cookie_sync_loop(context, cookie_manager, cookie_source, logger, shutdown_event):
-    """Background daemon thread to periodically save cookies"""
+def _cookie_sync_loop(context, cookie_manager, cookie_source, logger, shutdown_event, page=None):
+    """Background daemon thread to perform scheduled refreshes and save new cookies"""
+    
+    # Initialize refresh timing from intervals (in hours)
+    refresh_min = os.getenv("REFRESH_INTERVAL_MIN", "6")
+    refresh_max = os.getenv("REFRESH_INTERVAL_MAX", "10")
+    spinner_timeout_ms = int(os.getenv("SPINNER_TIMEOUT_MS", "300000"))
+    
+    next_refresh = get_next_refresh_time(refresh_min, refresh_max)
+    logger.info(f"Probabilistic refresh scheduled for: {next_refresh.strftime('%Y-%m-%d %H:%M:%S')}")
+
     while not (shutdown_event and shutdown_event.is_set()):
+        # Critical: check if the page associated with THIS thread is still active
+        if not page or page.is_closed():
+            logger.info("Associated page is closed. Terminating background refresh thread.")
+            break
+
         try:
-            # Sleep in small chunks so we can exit quickly on shutdown
-            for _ in range(30):
-                if shutdown_event and shutdown_event.is_set():
-                    break
-                time.sleep(10)
-            
-            if shutdown_event and shutdown_event.is_set():
-                break
+            # Check if it's time to refresh
+            now = datetime.now()
+            if now >= next_refresh:
+                logger.info("Scheduled refresh time reached. Checking for active generation...")
                 
-            cookies = context.cookies()
-            cookie_manager.save_cookies(cookie_source, cookies)
-            logger.debug(f"Background sync: Saved {len(cookies)} cookies")
+                try:
+                    # Smart Wait: Check for mat-spinner
+                    spinner_locator = page.locator('mat-spinner')
+                    
+                    # If spinner is visible, wait for it to disappear
+                    # Use a very short timeout for the initial check to avoid blocking
+                    try:
+                        is_generating = spinner_locator.is_visible(timeout=500)
+                    except:
+                        is_generating = False
+
+                    if is_generating:
+                        logger.info("Generation active (spinner visible). Waiting for it to finish before refresh...")
+                        try:
+                            # Wait for generation to finish or timeout
+                            spinner_locator.wait_for(state='hidden', timeout=spinner_timeout_ms)
+                            logger.info("Generation finished. Waiting 2 seconds for stability...")
+                            time.sleep(2)
+                        except TimeoutError:
+                            logger.warning(f"Spinner wait timed out ({spinner_timeout_ms/1000}s). Proceeding with refresh anyway to avoid session expiry.")
+                    
+                    # Re-verify page is still open before navigation
+                    if page.is_closed():
+                        break
+
+                    # Perform page reload
+                    logger.info("Reloading page to refresh authentication...")
+                    page.reload(wait_until='domcontentloaded', timeout=90000)
+                    
+                    # Wait for loading indicator (spinner) to disappear (initial page load spinner)
+                    try:
+                        spinner_locator.wait_for(state='hidden', timeout=30000)
+                    except TimeoutError:
+                        logger.warning("Loading indicator did not disappear after refresh reload, proceeding anyway")
+                    
+                    # Handle any popups that might have reappeared
+                    handle_popup_dialog(page, logger=logger)
+                    
+                    # Save fresh cookies ONLY after refresh
+                    cookies = context.cookies()
+                    cookie_manager.save_cookies(cookie_source, cookies)
+                    logger.info(f"Auth refresh successful: Saved {len(cookies)} new cookies")
+                        
+                except Exception as refresh_e:
+                    if "Target closed" in str(refresh_e) or "context or browser has been closed" in str(refresh_e):
+                        logger.info("Browser target closed during refresh. Thread exiting.")
+                        break
+                    logger.error(f"Error during scheduled auth refresh: {refresh_e}")
+                
+                # Calculate next refresh time (interval based)
+                next_refresh = get_next_refresh_time(refresh_min, refresh_max)
+                logger.info(f"Next probabilistic refresh scheduled for: {next_refresh.strftime('%Y-%m-%d %H:%M:%S')}")
+
+            # Sleep in small chunks so we can exit quickly on shutdown or page close
+            for _ in range(10): # Check every second for responsiveness
+                if (shutdown_event and shutdown_event.is_set()) or page.is_closed():
+                    break
+                time.sleep(1)
+                
         except Exception as e:
-            logger.error(f"Error in cookie sync loop: {e}")
+            if "Target closed" in str(e):
+                break
+            logger.error(f"Error in refresh loop: {e}")
+            time.sleep(30)
+
+
+
+
 
 def run_browser_instance(config, shutdown_event=None):
     """
@@ -106,16 +180,13 @@ def run_browser_instance(config, shutdown_event=None):
                 context.add_cookies(cookies)
                 page = context.new_page()
 
-                # Start background Cookie sync thread
+                # Start background refresh thread
                 sync_thread = threading.Thread(
                     target=_cookie_sync_loop,
-                    args=(context, cookie_manager, cookie_source, logger, shutdown_event),
+                    args=(context, cookie_manager, cookie_source, logger, shutdown_event, page),
                     daemon=True
                 )
                 sync_thread.start()
-                
-                # Create lock to protect generation from being refreshed
-                action_lock = threading.Lock()
 
                 # Create Cookie validator
                 cookie_validator = CookieValidator(page, context, logger)
@@ -248,7 +319,7 @@ def run_browser_instance(config, shutdown_event=None):
                     # --- If all checks pass, assume success ---
                     logger.info("All validations passed, confirmed successful login")
 
-                    handle_successful_navigation(page, logger, diagnostic_tag, shutdown_event, cookie_validator, action_lock)
+                    handle_successful_navigation(page, logger, diagnostic_tag, shutdown_event, cookie_validator)
                 elif "accounts.google.com/v3/signin/accountchooser" in final_url:
                     logger.warning("Google account selection page detected. Login failed or Cookie expired")
                     page.screenshot(path=os.path.join(screenshot_dir, f"FAIL_chooser_click_failed_{diagnostic_tag}.png"))
@@ -264,6 +335,15 @@ def run_browser_instance(config, shutdown_event=None):
                 # If running to here without exception, instance finished normally (e.g., received shutdown signal)
                 # Reset retry counter upon normal finish
                 retry_count = 0
+
+                # Final cookie save BEFORE context closes
+                try:
+                    final_cookies = context.cookies()
+                    cookie_manager.save_cookies(cookie_source, final_cookies)
+                    logger.info("Saved final cookies before closing context")
+                except Exception as e:
+                    logger.error(f"Error during final cookie save: {e}")
+                    
                 return
 
         except KeepAliveError as e:
@@ -292,12 +372,5 @@ def run_browser_instance(config, shutdown_event=None):
             logger.exception(f"Unexpected serious error occurred while running Camoufox instance: {e}")
             return
         finally:
-            # Shutdown event happened or loop exited, do a final save
-            try:
-                # Need to verify context exists in local scope and is accessible
-                if 'context' in locals():
-                    final_cookies = context.cookies()
-                    cookie_manager.save_cookies(cookie_source, final_cookies)
-                    logger.info("Saved final cookies before shutdown")
-            except Exception as e:
-                logger.error(f"Error during final cookie save: {e}")
+            # Main process loop exited or shutdown signal received
+            logger.info("Browser instance main loop terminated")

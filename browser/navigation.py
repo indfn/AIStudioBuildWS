@@ -51,7 +51,7 @@ def handle_popup_dialog(page: Page, logger=None):
     except Exception as e:
         logger.info(f"Unexpected error while checking for popups: {e}, will continue execution...")
 
-def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdown_event=None, cookie_validator=None, action_lock=None):
+def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdown_event=None, cookie_validator=None):
     """
     在成功导航到目标页面后，执行后续操作（处理弹窗、保持运行）。
     """
@@ -132,16 +132,11 @@ def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdow
             # Probabilistic anti-bot heartbeat reload
             if time.time() > next_heartbeat_time:
                 logger.info("Triggered probabilistic heartbeat reload")
-                if action_lock:
-                    with action_lock:
-                        logger.info("Acquired action_lock for heartbeat reload")
-                        page.reload(wait_until='networkidle')
-                        time.sleep(5)
-                        handle_popup_dialog(page, logger=logger)
-                        next_heartbeat_time = time.time() + random.randint(50 * 60, 80 * 60)
-                        logger.info(f"Heartbeat reload complete. Next reload at {time.ctime(next_heartbeat_time)}")
-                else:
-                    logger.warning("No action_lock provided, skipping heartbeat reload")
+                page.reload(wait_until='networkidle')
+                time.sleep(5)
+                handle_popup_dialog(page, logger=logger)
+                next_heartbeat_time = time.time() + random.randint(50 * 60, 80 * 60)
+                logger.info(f"Heartbeat reload complete. Next reload at {time.ctime(next_heartbeat_time)}")
 
             # Use interruptible sleep, checking shutdown signal every second
             for _ in range(10):  # 10 seconds = 10 checks of 1 second

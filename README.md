@@ -1,3 +1,16 @@
+# AIStudioBuildWS - Enhanced Google AI Studio WebSocket Proxy
+
+This is a fork of `hkfires/AIStudioBuildWS` enhanced with **Session Permanence** logic. It enables long-term, low-maintenance deployment on VPS or HuggingFace by automatically rotating session tokens and persisting them to disk.
+
+### Key Fork Enhancements
+- **Probabilistic Auth Refresh**: Automatically reloads the AI Studio page at randomized intervals (default 8-11 hours) to rotate session tokens before they expire (preventing the common 16-24h logout).
+- **Generation-Aware Scheduling**: Logically detects if a generation is currently active (via `mat-spinner`) and waits for it to finish before triggering a refresh.
+- **Persistent Cookie Sync**: Newly acquired session cookies are automatically saved back to the JSON files or environment variables, allowing sessions to persist across Docker restarts or system reboots.
+- **Over-the-Air Popup Dismissal**: Automatically detects and dismisses Google "Terms of Service" or "Got it" overlays that frequently block headless automation.
+- **Multi-Process Safety**: Thread-safe cookie management ensures that multiple browser instances (accounts) can run concurrently without file corruption.
+
+---
+
 > **Note:** The deployment scheme in this tutorial requires use with `CLIProxyAPI`. Before starting, ensure you have a running `CLIProxyAPI` instance.
 
 CLIProxyAPI v6.3.x and later supports connecting AI Providers via WebSocket, and was the first to support AIStudio.
