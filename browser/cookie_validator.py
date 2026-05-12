@@ -4,16 +4,16 @@ from playwright.sync_api import TimeoutError, Error as PlaywrightError
 
 
 class CookieValidator:
-    """Cookie验证器，负责定期验证Cookie的有效性。"""
+    """Cookie validator, responsible for periodically verifying Cookie validity."""
 
     def __init__(self, page, context, logger):
         """
-        初始化Cookie验证器
+        Initialize Cookie validator.
 
         Args:
-            page: 主页面实例
-            context: 浏览器上下文
-            logger: 日志记录器
+            page: Main page instance
+            context: Browser context
+            logger: Logger
         """
         self.page = page
         self.context = context
@@ -22,64 +22,64 @@ class CookieValidator:
     
     def validate_cookies_in_main_thread(self):
         """
-        在主线程中执行Cookie验证（由主线程调用）
+        Execute Cookie validation in the main thread (called by main thread).
 
         Returns:
-            bool: Cookie是否有效
+            bool: Whether the Cookie is valid
         """
         validation_page = None
         try:
-            # 创建新标签页（在主线程中执行）
-            self.logger.info("开始Cookie验证...")
+            # Create a new tab (executed in the main thread)
+            self.logger.info("Starting Cookie validation...")
             validation_page = self.context.new_page()
 
-            # 访问验证URL
+            # Visit validation URL
             validation_url = "https://aistudio.google.com/apps"
             validation_page.goto(validation_url, wait_until='domcontentloaded', timeout=30000)
 
-            # 等待页面加载
+            # Wait for page loading
             validation_page.wait_for_timeout(2000)
 
-            # 获取最终URL
+            # Get final URL
             final_url = validation_page.url
 
-            # 检查是否被重定向到登录页面
+            # Check if redirected to login page
             if "accounts.google.com/v3/signin/identifier" in final_url:
-                self.logger.error("Cookie验证失败: 被重定向到登录页面")
+                self.logger.error("Cookie validation failed: Redirected to login page")
                 return False
 
             if "accounts.google.com/v3/signin/accountchooser" in final_url:
-                self.logger.error("Cookie验证失败: 被重定向到账户选择页面")
+                self.logger.error("Cookie validation failed: Redirected to account selection page")
                 return False
 
-            # 如果没有跳转到登录页面，就算成功
-            self.logger.info("Cookie验证成功")
+            # If no redirect to login page, consider it successful
+            self.logger.info("Cookie validation successful")
             return True
 
         except TimeoutError:
-            self.logger.error("Cookie验证失败: 页面加载超时")
+            self.logger.error("Cookie validation failed: Page load timeout")
             return False
 
         except PlaywrightError as e:
-            self.logger.error(f"Cookie验证失败: {e}")
+            self.logger.error(f"Cookie validation failed: {e}")
             return False
 
         except Exception as e:
-            self.logger.error(f"Cookie验证失败: {e}")
+            self.logger.error(f"Cookie validation failed: {e}")
             return False
 
         finally:
-            # 关闭验证标签页
+            # Close validation tab
             if validation_page:
                 try:
                     validation_page.close()
                 except Exception:
-                    pass  # 忽略关闭错误
+                    pass  # Ignore closing errors
 
     def shutdown_instance_on_cookie_failure(self):
         """
-        因Cookie失效而关闭实例
+        Shut down instance due to Cookie failure.
         """
-        self.logger.error("Cookie失效，关闭实例")
+        self.logger.error("Cookie invalid, shutting down instance")
         time.sleep(1)
         sys.exit(1)

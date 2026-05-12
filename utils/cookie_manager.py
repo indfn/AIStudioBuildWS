@@ -1,6 +1,6 @@
 """
-统一的Cookie管理器
-整合JSON文件和环境变量Cookie的检测、加载和管理功能
+Unified Cookie Manager
+Integrates detection, loading, and management functions for JSON file and environment variable cookies.
 """
 
 import os
@@ -13,10 +13,10 @@ from utils.common import clean_env_value
 
 @dataclass
 class CookieSource:
-    """Cookie来源的统一表示"""
+    """Unified representation of Cookie source"""
     type: str  # "file" | "env_var"
     identifier: str  # filename or "USER_COOKIE_1"
-    display_name: str  # 显示名称
+    display_name: str  # Display name
 
     def __str__(self):
         return f"{self.type}:{self.identifier}"
@@ -24,8 +24,8 @@ class CookieSource:
 
 class CookieManager:
     """
-    统一的Cookie管理器
-    负责检测、加载和缓存所有来源的Cookie数据
+    Unified Cookie Manager
+    Responsible for detecting, loading, and caching Cookie data from all sources.
     """
 
     def __init__(self, logger=None):
@@ -35,15 +35,15 @@ class CookieManager:
 
     def detect_all_sources(self) -> List[CookieSource]:
         """
-        检测所有可用的Cookie来源（JSON文件 + 环境变量）
-        结果会被缓存，避免重复扫描
+        Detect all available Cookie sources (JSON files + environment variables).
+        Results are cached to avoid repeated scanning.
         """
         if self._detected_sources is not None:
             return self._detected_sources
 
         sources = []
 
-        # 1. 扫描Cookies目录中的JSON文件
+        # 1. Scan JSON files in Cookies directory
         try:
             cookie_path = cookies_dir()
             if os.path.isdir(cookie_path):
@@ -58,18 +58,18 @@ class CookieManager:
                     sources.append(source)
 
                 if cookie_files and self.logger:
-                    self.logger.info(f"发现 {len(cookie_files)} 个 Cookie 文件")
+                    self.logger.info(f"Found {len(cookie_files)} Cookie files")
                 elif self.logger:
-                    self.logger.info(f"在 {cookie_path} 目录下未找到任何格式的 Cookie 文件")
+                    self.logger.info(f"No Cookie files found in {cookie_path} directory")
             else:
                 if self.logger:
-                    self.logger.error(f"Cookie 目录不存在: {cookie_path}")
+                    self.logger.error(f"Cookie directory does not exist: {cookie_path}")
 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"扫描 Cookie 目录时出错: {e}")
+                self.logger.error(f"Error scanning Cookie directory: {e}")
 
-        # 2. 扫描USER_COOKIE环境变量
+        # 2. Scan USER_COOKIE environment variables
         cookie_index = 1
         env_cookie_count = 0
 
@@ -79,7 +79,7 @@ class CookieManager:
 
             if not env_value:
                 if cookie_index == 1 and self.logger:
-                    self.logger.info(f"未检测到任何 USER_COOKIE 环境变量")
+                    self.logger.info(f"No USER_COOKIE environment variables detected")
                 break
 
             source = CookieSource(
@@ -93,28 +93,28 @@ class CookieManager:
             cookie_index += 1
 
         if env_cookie_count > 0 and self.logger:
-            self.logger.info(f"发现 {env_cookie_count} 个 Cookie 环境变量")
+            self.logger.info(f"Found {env_cookie_count} Cookie environment variables")
 
-        # 缓存结果
+        # Cache results
         self._detected_sources = sources
         return sources
 
     def load_cookies(self, source: CookieSource) -> List[Dict]:
         """
-        从指定来源加载Cookie数据
+        Load Cookie data from specified source.
 
         Args:
-            source: Cookie来源对象
+            source: Cookie source object
 
         Returns:
-            Playwright兼容的cookie列表
+            Playwright-compatible cookie list
         """
         cache_key = str(source)
 
-        # 检查缓存
+        # Check cache
         if cache_key in self._cookie_cache:
             if self.logger:
-                self.logger.debug(f"从缓存加载 Cookie: {source.display_name}")
+                self.logger.debug(f"Loading Cookie from cache: {source.display_name}")
             return self._cookie_cache[cache_key]
 
         cookies = []
@@ -126,45 +126,45 @@ class CookieManager:
                 cookies = self._load_from_env(source.identifier)
             else:
                 if self.logger:
-                    self.logger.error(f"未知的 Cookie 来源类型: {source.type}")
+                    self.logger.error(f"Unknown Cookie source type: {source.type}")
                 return []
 
-            # 缓存结果
+            # Cache results
             self._cookie_cache[cache_key] = cookies
 
             if self.logger:
-                self.logger.info(f"从 {source.display_name} 加载了 {len(cookies)} 个 Cookie 数据")
+                self.logger.info(f"Loaded {len(cookies)} Cookie data from {source.display_name}")
 
         except Exception as e:
             if self.logger:
-                self.logger.error(f"从 {source.display_name} 加载 Cookie 时出错: {e}")
+                self.logger.error(f"Error loading Cookie from {source.display_name}: {e}")
             return []
 
         return cookies
 
     def _load_from_file(self, filename: str) -> List[Dict]:
-        """从文件加载 Cookie，自动识别 JSON 或 KV 格式"""
+        """Load Cookie from file, automatically recognize JSON or KV format"""
         cookie_path = cookies_dir() / filename
 
         if not os.path.exists(cookie_path):
-            raise FileNotFoundError(f"Cookie 文件不存在: {cookie_path}")
+            raise FileNotFoundError(f"Cookie file does not exist: {cookie_path}")
 
         with open(cookie_path, 'r', encoding='utf-8') as f:
             file_content = f.read().strip()
 
-        # 尝试解析为 JSON
+        # Attempt to parse as JSON
         try:
             cookies_from_file = json.loads(file_content)
-            # JSON 解析成功，使用自动转换函数
+            # JSON parsing successful, use automatic conversion function
             return auto_convert_to_playwright(
                 cookies_from_file,
                 default_domain=".google.com",
                 logger=self.logger
             )
         except json.JSONDecodeError:
-            # JSON 解析失败，当作 KV 格式处理
+            # JSON parsing failed, handle as KV format
             if self.logger:
-                self.logger.info(f"文件 {filename} 不是有效的 JSON 格式，尝试作为 KV 格式解析")
+                self.logger.info(f"File {filename} is not in valid JSON format, attempting to parse as KV format")
             return auto_convert_to_playwright(
                 file_content,
                 default_domain=".google.com",
@@ -172,27 +172,60 @@ class CookieManager:
             )
 
     def _load_from_env(self, env_var_name: str) -> List[Dict]:
-        """从环境变量加载 Cookie，自动识别 JSON 或 KV 格式"""
+        """Load Cookie from environment variable, automatically recognize JSON or KV format"""
         env_value = clean_env_value(os.getenv(env_var_name))
 
         if not env_value:
-            raise ValueError(f"环境变量 {env_var_name} 不存在或为空")
+            raise ValueError(f"Environment variable {env_var_name} does not exist or is empty")
 
-        # 尝试解析为 JSON
+        # Attempt to parse as JSON
         try:
             cookies_from_env = json.loads(env_value)
-            # JSON 解析成功，使用自动转换函数
+            # JSON parsing successful, use automatic conversion function
             return auto_convert_to_playwright(
                 cookies_from_env,
                 default_domain=".google.com",
                 logger=self.logger
             )
         except json.JSONDecodeError:
-            # JSON 解析失败，当作 KV 格式处理
+            # JSON parsing failed, handle as KV format
             if self.logger:
-                self.logger.debug(f"环境变量 {env_var_name} 不是有效的 JSON 格式，作为 KV 格式解析")
+                self.logger.debug(f"Environment variable {env_var_name} is not in valid JSON format, parsing as KV format")
             return auto_convert_to_playwright(
                 env_value,
                 default_domain=".google.com",
                 logger=self.logger
             )
+
+    def save_cookies(self, source: CookieSource, cookies: list):
+        """
+        Save cookies back to their source if the source is a file.
+        Write atomically using a temporary file.
+
+        Args:
+            source: CookieSource object representing where these cookies came from
+            cookies: List of Playwright-compatible cookie dictionaries
+        """
+        if source.type != "file":
+            if self.logger:
+                self.logger.debug(f"Skipping save for non-file cookie source: {source.type}")
+            return
+
+        try:
+            cookie_path = cookies_dir() / source.identifier
+            tmp_path = cookie_path.with_suffix(".tmp")
+            
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(cookies, f, indent=2)
+            
+            os.replace(tmp_path, cookie_path)
+            
+            # Update cache so next load gets the fresh cookies
+            cache_key = str(source)
+            self._cookie_cache[cache_key] = cookies
+            
+            if self.logger:
+                self.logger.info(f"Successfully saved {len(cookies)} cookies to {source.identifier}")
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Error saving cookies to {source.identifier}: {e}")

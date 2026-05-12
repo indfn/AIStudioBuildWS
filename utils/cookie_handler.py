@@ -1,6 +1,6 @@
 def convert_cookie_editor_to_playwright(cookies_from_editor, logger=None):
     """
-    将从 Cookie-Editor 插件导出的 Cookie 列表转换为 Playwright 兼容的格式。
+    Convert Cookie list exported from Cookie-Editor plugin to Playwright compatible format.
     """
     playwright_cookies = []
 
@@ -30,106 +30,106 @@ def convert_cookie_editor_to_playwright(cookies_from_editor, logger=None):
             playwright_cookies.append(pw_cookie)
         else:
             if logger:
-                logger.warning(f"跳过一个格式不完整的 Cookie: {cookie}")
+                logger.warning(f"Skipping an incomplete Cookie: {cookie}")
 
     return playwright_cookies
 
 
 def convert_kv_to_playwright(kv_string, default_domain=".google.com", logger=None):
     """
-    将键值对格式的 Cookie 字符串转换为 Playwright 兼容的格式。
+    Convert key-value pair format Cookie string to Playwright compatible format.
 
     Args:
-        kv_string (str): 包含 Cookie 的键值对字符串，格式为 "name1=value1; name2=value2; ..."
-        default_domain (str): 默认域名，默认为".google.com"
-        logger: 日志记录器
+        kv_string (str): Cookie key-value pair string, format "name1=value1; name2=value2; ..."
+        default_domain (str): Default domain, default is ".google.com"
+        logger: Logger
 
     Returns:
-        list: Playwright 兼容的 Cookie 列表
+        list: Playwright compatible Cookie list
     """
     playwright_cookies = []
 
-    # 按分号分割 Cookie
+    # Split Cookies by semicolon
     cookie_pairs = kv_string.split(';')
 
     for pair in cookie_pairs:
-        pair = pair.strip()  # 去除首尾空白字符
+        pair = pair.strip()  # Remove leading/trailing whitespace
 
-        if not pair:  # 跳过空字符串
+        if not pair:  # Skip empty strings
             continue
 
-        # 跳过无效的 Cookie（不包含等号）
+        # Skip invalid Cookie (does not contain equal sign)
         if '=' not in pair:
             if logger:
-                logger.warning(f"跳过无效的 Cookie 格式: '{pair}'")
+                logger.warning(f"Skipping invalid Cookie format: '{pair}'")
             continue
 
-        # 分割name和value
-        name, value = pair.split('=', 1)  # 只分割第一个等号
+        # Split name and value
+        name, value = pair.split('=', 1)  # Only split on first equal sign
         name = name.strip()
         value = value.strip()
 
-        if not name:  # 跳过空名称
+        if not name:  # Skip empty names
             if logger:
-                logger.warning(f"跳过空名称的 Cookie: '{pair}'")
+                logger.warning(f"Skipping Cookie with empty name: '{pair}'")
             continue
 
-        # 构造 Playwright 格式的 Cookie
+        # Construct Playwright formatted Cookie
         pw_cookie = {
             'name': name,
             'value': value,
             'domain': default_domain,
             'path': '/',
-            'expires': -1,  # 默认为会话 Cookie
-            'httpOnly': False,  # KV 格式无法确定 httpOnly 状态，默认为 False
-            'secure': True,     # 假设为安全 Cookie
-            'sameSite': 'Lax'   # 默认 SameSite 策略
+            'expires': -1,  # Default to session Cookie
+            'httpOnly': False,  # KV format cannot determine httpOnly status, default to False
+            'secure': True,     # Assume secure Cookie
+            'sameSite': 'Lax'   # Default SameSite policy
         }
 
         playwright_cookies.append(pw_cookie)
 
         if logger:
-            logger.debug(f"成功转换 Cookie: {name} -> domain={default_domain}")
+            logger.debug(f"Successfully converted Cookie: {name} -> domain={default_domain}")
 
     return playwright_cookies
 
 
 def auto_convert_to_playwright(cookie_data, default_domain=".google.com", logger=None):
     """
-    自动识别 Cookie 数据格式并转换为 Playwright 兼容格式。
-    支持两种输入格式:
-    1. JSON 数组 (Cookie-Editor 导出格式)
-    2. KV 字符串 (键值对格式: "name1=value1; name2=value2; ...")
+    Automatically detect Cookie data format and convert to Playwright compatible format.
+    Supports two input formats:
+    1. JSON array (Cookie-Editor export format)
+    2. KV string (Key-value pair format: "name1=value1; name2=value2; ...")
 
     Args:
-        cookie_data: Cookie 数据，可以是 list (JSON格式) 或 str (KV格式)
-        default_domain (str): KV格式使用的默认域名，默认为".google.com"
-        logger: 日志记录器
+        cookie_data: Cookie data, can be list (JSON format) or str (KV format)
+        default_domain (str): Default domain used for KV format, default is ".google.com"
+        logger: Logger
 
     Returns:
-        list: Playwright 兼容的 Cookie 列表
+        list: Playwright compatible Cookie list
 
     Raises:
-        ValueError: 当格式无法识别时抛出异常
+        ValueError: Thrown when format cannot be identified
     """
-    # 格式1: JSON 数组格式 (Cookie-Editor 导出格式)
+    # Format 1: JSON array format (Cookie-Editor export format)
     if isinstance(cookie_data, list):
         if logger:
-            logger.debug(f"检测到 JSON 数组格式的 Cookie 数据，共 {len(cookie_data)} 个条目")
+            logger.debug(f"JSON array format Cookie data detected, total {len(cookie_data)} entries")
         return convert_cookie_editor_to_playwright(cookie_data, logger=logger)
 
-    # 格式2: KV 字符串格式
+    # Format 2: KV string format
     if isinstance(cookie_data, str):
-        # 去除首尾空白字符
+        # Remove leading/trailing whitespace
         cookie_str = cookie_data.strip()
 
         if not cookie_str:
             if logger:
-                logger.warning("收到空的 Cookie 字符串")
+                logger.warning("Empty Cookie string received")
             return []
 
         if logger:
-            logger.debug(f"检测到 KV 字符串格式的 Cookie 数据")
+            logger.debug(f"KV string format Cookie data detected")
 
         return convert_kv_to_playwright(
             cookie_str,
@@ -137,8 +137,8 @@ def auto_convert_to_playwright(cookie_data, default_domain=".google.com", logger
             logger=logger
         )
 
-    # 无法识别的格式
-    error_msg = f"无法识别的 Cookie 数据格式: {type(cookie_data).__name__}"
+    # Unrecognized format
+    error_msg = f"Unrecognized Cookie data format: {type(cookie_data).__name__}"
     if logger:
         logger.error(error_msg)
     raise ValueError(error_msg)

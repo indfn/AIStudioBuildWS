@@ -4,11 +4,11 @@ import os
 
 def custom_timezone_converter(timestamp):
     """
-    将时间戳转换为指定时区 (默认 UTC+8/Asia/Shanghai) 的 struct_time。
-    时区通过环境变量 TZ_OFFSET (小时数) 配置。
+    Convert timestamp to struct_time in the specified timezone (default UTC+8/Asia/Shanghai).
+    The timezone is configured via the TZ_OFFSET (hours) environment variable.
     """
     
-    # 尝试从环境变量获取偏移量，默认为 8 (北京时间)
+    # Attempt to get offset from environment variable, default to 8 (Beijing time)
     try:
         offset_hours = float(os.getenv('TZ_OFFSET', 8))
     except (ValueError, TypeError):
@@ -23,16 +23,16 @@ def custom_timezone_converter(timestamp):
 
 def setup_logging(log_file, prefix=None, level=logging.INFO):
     """
-    配置日志记录器，使其输出到文件和控制台。
-    支持一个可选的前缀，用于标识日志来源。
+    Configure the logger to output to file and console.
+    Supports an optional prefix for identifying log sources.
 
-    每次调用都会重新配置处理器，以适应多进程环境。
-    
-    时间显示默认为 UTC+8 (北京时间)，可通过环境变量 TZ_OFFSET 修改。
+    Each call reconfigures handlers to accommodate multi-process environments.
 
-    :param log_file: 日志文件的路径。
-    :param prefix: (可选) 要添加到每条日志消息开头的字符串前缀。
-    :param level: 日志级别。
+    Time display defaults to UTC+8 (Beijing time), which can be modified via the TZ_OFFSET environment variable.
+
+    :param log_file: Path to the log file.
+    :param prefix: (Optional) A string prefix to add to the beginning of each log message.
+    :param level: Log level.
     """
     logger = logging.getLogger('my_app_logger') 
     logger.setLevel(level)
@@ -54,7 +54,7 @@ def setup_logging(log_file, prefix=None, level=logging.INFO):
     ch.setLevel(level)
 
     formatter = logging.Formatter(log_format)
-    # 设置自定义的时间转换器
+    # Set custom time converter
     formatter.converter = custom_timezone_converter
 
     fh.setFormatter(formatter)

@@ -1,7 +1,7 @@
 """
-URL处理辅助函数
+URL processing helper functions.
 
-提供URL解析和路径提取功能，用于导航验证中的域名无关匹配。
+Provides URL parsing and path extraction functionality, used for domain-agnostic matching in navigation validation.
 """
 
 from urllib.parse import urlparse
@@ -9,16 +9,16 @@ from urllib.parse import urlparse
 
 def extract_url_path(url: str) -> str:
     """
-    提取URL的路径和查询参数部分，忽略协议和域名差异
+    Extract the path and query parameter portion of the URL, ignoring protocol and domain differences.
 
-    用于验证导航是否到达正确页面，允许域名重定向。
+    Used to verify whether navigation reached the correct page, allowing for domain redirection.
 
     Args:
-        url: 完整URL字符串
+        url: Complete URL string
 
     Returns:
-        路径+查询参数+片段（例如："/apps/drive/123?param=value#section"）
-        如果URL为空或无效，返回空字符串
+        path + query parameters + fragment (e.g.: "/apps/drive/123?param=value#section")
+        If URL is empty or invalid, return empty string
 
     Examples:
         >>> extract_url_path("https://ai.studio/apps/drive/123?param=value")
@@ -42,23 +42,23 @@ def extract_url_path(url: str) -> str:
             result += '#' + parsed.fragment
         return result
     except Exception:
-        # 如果URL格式无效，返回空字符串
+        # Return empty string if URL format is invalid
         return ""
 
 
 def mask_path_for_logging(path: str) -> str:
     """
-    对路径进行脱敏处理，用于日志输出
+    Mask the path for logging purposes.
 
-    脱敏规则：
-    1. 对于 /apps/drive/XXXXXXXXXX 路径，保留头4位和尾4位，中间用***代替
-    2. 如果不是 /apps/drive/XXXXXXXXXX 路径，返回完整路径
+    Masking rule:
+    1. For /apps/drive/XXXXXXXXXX paths, keep first 4 and last 4 characters, replacing the middle with ***
+    2. If it is not a /apps/drive/XXXXXXXXXX path, return the full path
 
     Args:
-        path: URL路径字符串
+        path: URL path string
 
     Returns:
-        脱敏后的路径字符串
+        Masked path string
 
     Examples:
         >>> mask_path_for_logging("/apps/drive/abcdef123456")
@@ -73,38 +73,38 @@ def mask_path_for_logging(path: str) -> str:
     if not path:
         return ""
 
-    # 检查是否为 /apps/drive/ 路径
+    # Check if it is a /apps/drive/ path
     if path.startswith('/apps/drive/'):
-        # 提取路径中的ID部分
+        # Extract ID part of path
         path_parts = path.split('/')
         if len(path_parts) >= 4:  # ['', 'apps', 'drive', 'ID']
             drive_id = path_parts[3]
 
-            # 如果ID长度大于8，则进行脱敏处理
+            # Perform masking if ID length > 8
             if len(drive_id) > 8:
-                # 使用与URL脱敏相同的格式
+                # Use same format as URL masking
                 masked_id = f"{drive_id[:4]}***{drive_id[-4:]}"
-                # 重新构建路径
+                # Reconstruct path
                 masked_parts = path_parts[:3] + [masked_id] + path_parts[4:]
                 return '/'.join(masked_parts)
 
-    # 如果不符合脱敏条件，返回原始路径
+    # Return original path if it doesn't meet masking conditions
     return path
 
 
 def mask_url_for_logging(url: str) -> str:
     """
-    对URL进行脱敏处理，用于日志输出
+    Mask the URL for logging purposes.
 
-    脱敏规则：
-    1. 对于 /apps/drive/XXXXXXXXXX 路径，保留头4位和尾4位，中间用***代替
-    2. 如果不是 /apps/drive/XXXXXXXXXX 路径，返回完整URL
+    Masking rule:
+    1. For /apps/drive/XXXXXXXXXX paths, keep first 4 and last 4 characters, replacing the middle with ***
+    2. If it is not a /apps/drive/XXXXXXXXXX path, return the full URL
 
     Args:
-        url: 完整URL字符串
+        url: Complete URL string
 
     Returns:
-        脱敏后的URL字符串
+        Masked URL string
 
     Examples:
         >>> mask_url_for_logging("https://ai.studio/apps/drive/abcdef123456")
@@ -122,21 +122,21 @@ def mask_url_for_logging(url: str) -> str:
     try:
         parsed = urlparse(url)
 
-        # 检查是否为 /apps/drive/ 路径
+        # Check if it is a /apps/drive/ path
         if parsed.path.startswith('/apps/drive/'):
-            # 提取路径中的ID部分
+            # Extract ID part of path
             path_parts = parsed.path.split('/')
             if len(path_parts) >= 4:  # ['', 'apps', 'drive', 'ID']
                 drive_id = path_parts[3]
 
-                # 如果ID长度大于8，则进行脱敏处理
+                # Perform masking if ID length > 8
                 if len(drive_id) > 8:
                     masked_id = f"{drive_id[:4]}***{drive_id[-4:]}"
-                    # 重新构建路径
+                    # Reconstruct path
                     masked_parts = path_parts[:3] + [masked_id] + path_parts[4:]
                     masked_path = '/'.join(masked_parts)
 
-                    # 重新构建URL
+                    # Reconstruct URL
                     result = f"{parsed.scheme}://{parsed.netloc}{masked_path}"
                     if parsed.query:
                         result += '?' + parsed.query
@@ -144,9 +144,9 @@ def mask_url_for_logging(url: str) -> str:
                         result += '#' + parsed.fragment
                     return result
 
-        # 如果不符合脱敏条件，返回原始URL
+        # Return original URL if it doesn't meet masking conditions
         return url
 
     except Exception:
-        # 如果URL解析失败，返回原始URL
+        # Return original URL if parsing fails
         return url

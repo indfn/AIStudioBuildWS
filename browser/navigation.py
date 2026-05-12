@@ -1,5 +1,6 @@
 import time
 import os
+import random
 from playwright.sync_api import Page, expect
 from utils.paths import logs_dir
 from utils.common import ensure_dir
@@ -13,26 +14,26 @@ def handle_popup_dialog(page: Page, logger=None):
     检查并处理弹窗。
     交替点击 Got it 和 Continue to the app 按钮直到没有弹窗。
     """
-    logger.info("开始处理弹窗...")
+    logger.info("Starting popup processing...")
     
-    # 定义需要查找的按钮列表
+    # Define the list of buttons to look for
     button_names = ["Got it", "Continue to the app"]
-    max_iterations = 10  # 最多尝试10轮，防止死循环
+    max_iterations = 10  # Max 10 attempts to prevent infinite loop
     total_clicks = 0
     
     try:
         for iteration in range(max_iterations):
             clicked_in_round = False
             
-            # 等待页面稳定
+            # Wait for page stability
             time.sleep(1)
             
-            # 每轮交替尝试点击所有按钮
+            # Try clicking all buttons alternately in each round
             for button_name in button_names:
                 try:
                     button_locator = page.locator(f'button:visible:has-text("{button_name}")')
                     if button_locator.count() > 0 and button_locator.first.is_visible():
-                        # logger.info(f"检测到弹窗: 点击 '{button_name}'")
+                        # logger.info(f"Popup detected: clicking '{button_name}'")
                         button_locator.first.click(force=True, timeout=2000)
                         total_clicks += 1
                         clicked_in_round = True
@@ -44,23 +45,23 @@ def handle_popup_dialog(page: Page, logger=None):
                 break
         
         if total_clicks > 0:
-            logger.info(f"弹窗处理完成, 共点击 {total_clicks} 次")
+            logger.info(f"Popup processing complete, clicked {total_clicks} times in total")
         else:
-            logger.info("未检测到弹窗")
+            logger.info("No popup detected")
     except Exception as e:
-        logger.info(f"检查弹窗时发生意外：{e}，将继续执行...")
+        logger.info(f"Unexpected error while checking for popups: {e}, will continue execution...")
 
-def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdown_event=None, cookie_validator=None):
+def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdown_event=None, cookie_validator=None, action_lock=None):
     """
     在成功导航到目标页面后，执行后续操作（处理弹窗、保持运行）。
     """
-    logger.info("已成功到达目标页面")
-    page.click('body') # 给予页面焦点
+    logger.info("Successfully reached the target page")
+    page.click('body') # Give focus to the page
 
-    # 检查并处理弹窗
+    # Check and handle popups
     handle_popup_dialog(page, logger=logger)
 
-    # 保存登录成功截图
+    # Save screenshot of successful login
     try:
         from datetime import datetime
         screenshot_dir = logs_dir()
@@ -68,79 +69,96 @@ def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdow
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         screenshot_path = os.path.join(screenshot_dir, f"SUCCESS_{cookie_file_config}_{timestamp}.png")
         page.screenshot(path=screenshot_path)
-        logger.info(f"已保存登录成功截图: {screenshot_path}")
+        logger.info(f"Saved login success screenshot: {screenshot_path}")
     except Exception as e:
-        logger.warning(f"保存截图失败: {e}")
+        logger.warning(f"Failed to save screenshot: {e}")
 
     if cookie_validator:
-        logger.info("Cookie验证器已创建，将定期验证Cookie有效性")
+        logger.info("Cookie validator created, will periodically verify Cookie validity")
 
-    logger.info("实例将保持运行状态。每10秒点击一次页面以保持活动")
+    logger.info("Instance will remain running. Clicking the page every 10 seconds to keep it active")
 
-    # 等待页面加载和渲染
+    # Wait for page loading and rendering
     time.sleep(15)
 
-    # 记录初始WS状态
+    # Record initial WS status
     last_ws_status = get_ws_status(page, logger)
-    logger.info(f"初始WS状态: {last_ws_status}")
+    logger.info(f"Initial WS status: {last_ws_status}")
 
-    # 添加Cookie验证计数器
+    # Add Cookie validation counter
     click_counter = 0
 
+    # Initialize anti-bot refresh timer
+    next_heartbeat_time = time.time() + random.randint(50 * 60, 80 * 60) # 50-80 minutes
+
     while True:
-        # 检查是否收到关闭信号
+        # Check if shutdown signal received
         if shutdown_event and shutdown_event.is_set():
-            logger.info("收到关闭信号，正在优雅退出保持活动循环...")
-            break
+            logger.info("Shutdown signal received, gracefully exiting keep-alive loop...")
+            return
 
         try:
-            # 检测并关闭interaction-modal遮罩层（如果出现）
+            # Detect and close interaction-modal overlay (if it appears)
             dismiss_interaction_modal(page, logger)
 
-            # 在iframe内随机移动并点击保活
+            # Randomly move and click in iframe to keep alive
             click_in_iframe(page, logger)
             click_counter += 1
 
-            # 检查WS状态是否发生变化
+            # Check if WS status has changed
             current_ws_status = get_ws_status(page, logger)
             if current_ws_status != last_ws_status:
-                logger.warning(f"WS状态变更: {last_ws_status} -> {current_ws_status}")
+                logger.warning(f"WS status change: {last_ws_status} -> {current_ws_status}")
                 
-                # 如果不是CONNECTED状态，尝试重连
+                # If not CONNECTED status, attempt reconnect
                 if current_ws_status != "CONNECTED":
-                    logger.info("WS断开，尝试重连...")
+                    logger.info("WS disconnected, attempting to reconnect...")
                     reconnect_ws(page, logger)
                     current_ws_status = get_ws_status(page, logger)
-                    logger.info(f"重连后WS状态: {current_ws_status}")
+                    logger.info(f"WS status after reconnection: {current_ws_status}")
                 
                 last_ws_status = current_ws_status
 
-            # 每360次点击（1小时）执行一次完整的Cookie验证
-            if cookie_validator and click_counter >= 360:  # 360 * 10秒 = 3600秒 = 1小时
+            # Perform full Cookie validation every 360 clicks (1 hour)
+            if cookie_validator and click_counter >= 360:  # 360 * 10 seconds = 3600 seconds = 1 hour
                 is_valid = cookie_validator.validate_cookies_in_main_thread()
 
                 if not is_valid:
                     cookie_validator.shutdown_instance_on_cookie_failure()
                     return
 
-                click_counter = 0  # 重置计数器
+                click_counter = 0  # Reset counter
 
-            # 使用可中断的睡眠，每秒检查一次关闭信号
-            for _ in range(10):  # 10秒 = 10次1秒检查
+            # Probabilistic anti-bot heartbeat reload
+            if time.time() > next_heartbeat_time:
+                logger.info("Triggered probabilistic heartbeat reload")
+                if action_lock:
+                    with action_lock:
+                        logger.info("Acquired action_lock for heartbeat reload")
+                        page.reload(wait_until='networkidle')
+                        time.sleep(5)
+                        handle_popup_dialog(page, logger=logger)
+                        next_heartbeat_time = time.time() + random.randint(50 * 60, 80 * 60)
+                        logger.info(f"Heartbeat reload complete. Next reload at {time.ctime(next_heartbeat_time)}")
+                else:
+                    logger.warning("No action_lock provided, skipping heartbeat reload")
+
+            # Use interruptible sleep, checking shutdown signal every second
+            for _ in range(10):  # 10 seconds = 10 checks of 1 second
                 if shutdown_event and shutdown_event.is_set():
-                    logger.info("收到关闭信号，正在优雅退出保持活动循环...")
+                    logger.info("Shutdown signal received, gracefully exiting keep-alive loop...")
                     return
                 time.sleep(1)
 
         except Exception as e:
-            logger.error(f"在保持活动循环中出错: {e}")
-            # 在保持活动循环中出错时截屏
+            logger.error(f"Error in keep-alive loop: {e}")
+            # Capture screenshot when error occurs in keep-alive loop
             try:
                 screenshot_dir = logs_dir()
                 ensure_dir(screenshot_dir)
                 screenshot_filename = os.path.join(screenshot_dir, f"FAIL_keep_alive_error_{cookie_file_config}.png")
                 page.screenshot(path=screenshot_filename, full_page=True)
-                logger.info(f"已在保持活动循环出错时截屏: {screenshot_filename}")
+                logger.info(f"Captured screenshot when error occurred in keep-alive loop: {screenshot_filename}")
             except Exception as screenshot_e:
-                logger.error(f"在保持活动循环出错时截屏失败: {screenshot_e}")
-            raise KeepAliveError(f"在保持活动循环时出错: {e}")
+                logger.error(f"Failed to capture screenshot when error occurred in keep-alive loop: {screenshot_e}")
+            raise KeepAliveError(f"Error in keep-alive loop: {e}")

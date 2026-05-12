@@ -1,6 +1,7 @@
 """
-通用工具函数
-提供项目中常用的基础功能
+General utility functions.
+
+Provides basic functionalities commonly used in the project.
 """
 
 import os
@@ -8,13 +9,13 @@ from pathlib import Path
 
 def clean_env_value(value):
     """
-    清理环境变量值，去除首尾空白字符
+    Clean environment variable value, remove leading/trailing whitespace.
 
     Args:
-        value: 环境变量的原始值
+        value: Original environment variable value
 
     Returns:
-        str or None: 清理后的值，如果为空或None则返回None
+        str or None: Cleaned value, or None if empty/None
     """
     if value is None:
         return None
@@ -24,13 +25,13 @@ def clean_env_value(value):
 
 def parse_headless_mode(headless_setting):
     """
-    解析headless模式配置
+    Parse headless mode configuration.
 
     Args:
-        headless_setting: headless配置值
+        headless_setting: Headless configuration value
 
     Returns:
-        bool or str: True表示headless，False表示有界面，'virtual'表示虚拟模式
+        bool or str: True for headless, False for headed, 'virtual' for virtual mode
     """
     if str(headless_setting).lower() == 'true':
         return True
@@ -42,10 +43,10 @@ def parse_headless_mode(headless_setting):
 
 def ensure_dir(path):
     """
-    确保目录存在，如果不存在则创建
+    Ensure directory exists, create if it does not.
 
     Args:
-        path: 目录路径（可以是字符串或Path对象）
+        path: Directory path (can be string or Path object)
     """
     if isinstance(path, str):
         path = Path(path)

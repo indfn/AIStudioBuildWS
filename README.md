@@ -1,75 +1,75 @@
-> **请注意：** 本教程的部署方案需配合 `CLIProxyAPI` 使用。在开始之前，请确保你已有一个正在运行的 `CLIProxyAPI` 实例。
+> **Note:** The deployment scheme in this tutorial requires use with `CLIProxyAPI`. Before starting, ensure you have a running `CLIProxyAPI` instance.
 
-CLIProxyAPI 自 v6.3.x 版本起，开始支持通过 WebSocket 方式接入 AI Provider，并首个支持了 AIStudio。
+CLIProxyAPI v6.3.x and later supports connecting AI Providers via WebSocket, and was the first to support AIStudio.
 
-然而，这种方式需要一个始终开启的浏览器来运行 AIStudioBuild 上的 WebSocket 通信程序，这总归有些不便。如果选择将其部署在 VPS 上，又会面临 VPS 内存要求较高的问题。
+However, this method requires a browser to be kept open to run the WebSocket communication program on AIStudioBuild, which is inconvenient. If you choose to deploy it on a VPS, you will face high VPS memory requirements.
 
-为了解决这个问题，我花了点时间尝试多种无头浏览器方案。最终，我选择使用 Docker 在 HuggingFace 上进行部署，此举能充分利用 HuggingFace 免费实例的大内存优势，实现零成本部署。
+To solve this, I spent some time experimenting with various headless browser solutions. Finally, I chose to use Docker to deploy on HuggingFace, which makes full use of HuggingFace's free instance large memory advantage to achieve zero-cost deployment.
 
-### 第一步：配置 AIStudioBuild 应用
+### Step 1: Configure AIStudioBuild Application
 
-需要根据你的 `CLIProxyAPI` 的设置，配置好 AIStudioBuild 上的 WebSocket 通信程序：打开官方提供的[示例程序](https://aistudio.google.com/apps/drive/1CPW7FpWGsDZzkaYgYOyXQ_6FWgxieLmL)，复制该程序后**需**修改图中红框处的两个地方。其中，如果 `CLIProxyAPI` 中设置了 `wsauth` 为 `true`，那么就需要设置 `JWT_TOKEN`为 `CLIProxyAPI` 中的拟用于鉴权的 `api-keys` 值；设置 `WEBSOCKET_PROXY_URL` 为 `CLIProxyAPI` 所在的地址，例如：`wss://mycap.example.com/v1/ws`。设置完成后保存，并记录这个应用的链接备用。
+You need to configure the WebSocket communication program on AIStudioBuild according to your `CLIProxyAPI` settings: Open the [example program](https://aistudio.google.com/apps/drive/1CPW7FpWGsDZzkaYgYOyXQ_6FWgxieLmL) provided officially, copy the program, and **you must** modify the two places indicated by the red box in the image. If `wsauth` is set to `true` in `CLIProxyAPI`, you need to set `JWT_TOKEN` to the `api-keys` value intended for authentication in `CLIProxyAPI`; set `WEBSOCKET_PROXY_URL` to the address where `CLIProxyAPI` is located, for example: `wss://mycap.example.com/v1/ws`. After setting, save it and record the link to this application for later use.
 
 ![](https://img.072899.xyz/2025/11/359a2572d0206c20dba7fe12a136d6e8.png)
 
-多账户使用时，需要多操作一个步骤，将该应用访问权限设置为 `Public`。
+When using multiple accounts, you need to take one extra step: set the access permission of this application to `Public`.
 
 ![](https://img.072899.xyz/2025/11/69c6395d1a98c38c68bc6c8dd46b3014.png)
 
-**安全警告：** 设置为 `Public` 后，请务必妥善保管你的链接。**切勿**将此链接公开分享，以免导致授权信息泄露。
+**Security Warning:** After setting it to `Public`, be sure to keep your link safe. **Do not** share this link publicly to avoid leaking authorization information.
 
-### 第二步：准备 AIStudio Cookie
+### Step 2: Prepare AIStudio Cookie
 
-Cookie 可以通过两种方式获取，两种方式选一种即可，推荐使用指纹浏览器方式获取：
+Cookies can be obtained in two ways; choose one. It is recommended to use a fingerprint browser to obtain them:
 
-第一种方式：使用 AdsPower 指纹浏览器，登录 https://aistudio.google.com/ ，退出后编辑浏览器环境，复制 Cookie 内容，具体如下图所示：
+Method 1: Use AdsPower fingerprint browser, log in to https://aistudio.google.com/ , log out, edit the browser environment, and copy the Cookie content as shown in the image below:
 
 ![](https://img.072899.xyz/2025/11/c60399120703a24bdd450d38e31052a5.png)
 
-第二种方式：通过 Chrome 等普通浏览器的隐私模式，登录 https://aistudio.google.com/ ，在浏览器的开发者工具中复制 Cookie 内容，具体位置如下图所示：
+Method 2: Use the privacy mode of a normal browser like Chrome, log in to https://aistudio.google.com/ , and copy the Cookie content in the browser's developer tools as shown in the image below:
 
 ![](https://img.072899.xyz/2025/11/51f860bf363cab01aa4c3fd5181b7f72.png)
 
-### 第三步（1）：部署 HuggingFace Space
+### Step 3 (1): Deploy HuggingFace Space
 
-打开 https://huggingface.co/spaces/hkfires/AIStudioBuildWS ，复制该 Space。在 `CAMOUFOX_INSTANCE_URL` 处填入第一步准备的程序的链接，在 `USER_COOKIE_1` 处填入第二步准备的 Cookie，点击 Duplicate Space。
+Open https://huggingface.co/spaces/hkfires/AIStudioBuildWS and duplicate the Space. Fill in the link to the program prepared in the first step at `CAMOUFOX_INSTANCE_URL`, fill in the Cookie prepared in the second step at `USER_COOKIE_1`, and click Duplicate Space.
 
 ![](https://img.072899.xyz/2025/11/04e84ce3b0f2abe7ae9e717ac8b5aa0b.png)
 
-等待 HuggingFace 构建完成，出现如下日志，即部署成功：
+Wait for the HuggingFace build to complete. If the following log appears, the deployment is successful:
 
 ![](https://img.072899.xyz/2025/11/e818f38cfb272c1fc10ca97c2ef23c6b.png)
 
-如果有多个账户，参考 `USER_COOKIE_1`，在 HuggingFace Space 的设置中依次增加 `USER_COOKIE_2`、`USER_COOKIE_3` 等环境变量即可。
+If there are multiple accounts, refer to `USER_COOKIE_1` and add environment variables like `USER_COOKIE_2`, `USER_COOKIE_3`, etc., in the settings of the HuggingFace Space.
 
-**可选配置：** 如果需要修改日志显示时区，可以添加 `TZ_OFFSET` 环境变量，例如设置为 `8` 表示 UTC+8（北京时间，默认值），设置为 `0` 表示 UTC。
+**Optional Configuration:** If you need to modify the log display time zone, you can add the `TZ_OFFSET` environment variable. For example, setting it to `8` means UTC+8 (Beijing time, default value), and setting it to `0` means UTC.
 
-**重要提醒：** Cookie 属于敏感信息，请**务必使用 "Secrets"** (而不是 "Variables") 来存储，以防止 Cookie 外泄。
+**Important Reminder:** Cookies are sensitive information. Please **be sure to use "Secrets"** (not "Variables") to store them to prevent Cookie leakage.
 
-### 第三步（2）：服务器 Docker 部署
+### Step 3 (2): Server Docker Deployment
 
-如果你拥有自己的服务器（VPS），也可以使用 Docker Compose 进行部署。
+If you have your own server (VPS), you can also use Docker Compose for deployment.
 
-1.  **下载代码**
+1.  **Download code**
     ```bash
     git clone https://github.com/hkfires/AIStudioBuildWS.git
     cd AIStudioBuildWS
     ```
 
-2.  **配置环境变量**
-    复制 `.env.example` 为 `.env`，并填入必要信息（`CAMOUFOX_INSTANCE_URL` 和 `USER_COOKIE_1` 等）。
-    
-    也可以在 `cookies` 目录下放置 JSON 格式的 Cookie 文件（文件名任意），程序会自动读取。
+2.  **Configure environment variables**
+    Copy `.env.example` to `.env` and fill in the necessary information (`CAMOUFOX_INSTANCE_URL`, `USER_COOKIE_1`, etc.).
+
+    You can also place Cookie files in JSON format in the `cookies` directory (the filename is arbitrary), and the program will automatically read them.
     ```bash
     cp .env.example .env
     nano .env
     ```
 
-3.  **启动服务**
+3.  **Start the service**
     ```bash
     docker compose up -d --build
     ```
 
-部署成功后，我们应该在 `CLIProxyAPI` 的中看到类似如下的日志。至此，整个部署全部完成。
+After successful deployment, we should see logs similar to the following in `CLIProxyAPI`. With this, the entire deployment is complete.
 
 ![](https://img.072899.xyz/2025/11/e0db39f81a3bbb956cbe9364e656a76f.png)
