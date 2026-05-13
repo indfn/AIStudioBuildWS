@@ -16,7 +16,7 @@ def handle_popup_dialog(page: Page, logger=None):
     """
     logger.info("Starting popup processing...")
     
-    button_names = ["Got it", "Continue to the app", "Skip", "Dismiss"]
+    button_names = ["Skip", "Next", "Try it out", "Got it", "Dismiss", "Continue to the app"]
     max_iterations = 10
     total_clicks = 0
     

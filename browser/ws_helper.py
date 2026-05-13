@@ -176,13 +176,14 @@ def dismiss_interaction_modal(page: Page, logger=None) -> bool:
         pass
     
     # Loop to handle stacked popups (dismiss one, another appears)
-    max_passes = 5
+    max_passes = 10
     for pass_idx in range(max_passes):
         handled_in_pass = False
         
         # Strategy 1: Click visible dismiss buttons across the whole page
+        # Order matters: Skip (fast), Next->Try it out (onboarding walkthrough), then other variants
         try:
-            for text in ["Skip", "Got it", "Dismiss", "Continue to the app"]:
+            for text in ["Skip", "Next", "Try it out", "Got it", "Dismiss", "Continue to the app"]:
                 try:
                     btn = page.locator(f'button:visible:has-text("{text}")').first
                     if btn.count() > 0 and btn.is_visible(timeout=300):
@@ -199,7 +200,7 @@ def dismiss_interaction_modal(page: Page, logger=None) -> bool:
         # Strategy 2: Also search inside the Preview iframe for dismiss buttons
         try:
             frame = page.frame_locator('iframe[title="Preview"]')
-            for text in ["Skip", "Got it", "Dismiss", "Continue to the app", "Close"]:
+            for text in ["Skip", "Next", "Try it out", "Got it", "Dismiss", "Continue to the app", "Close"]:
                 try:
                     btn = frame.locator(f'button:visible:has-text("{text}")').first
                     if btn.count() > 0 and btn.is_visible(timeout=300):
