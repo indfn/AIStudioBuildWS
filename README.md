@@ -84,7 +84,7 @@ If you have your own server (VPS), you can also use Docker Compose for deploymen
     nano filename.json
     ```
     
-    Or you can also place your cookie token string (if you obtained cookies the other way) in .env at the bottomm as USER_COOKIE_1=...
+    Or you can also place your cookie token string (if you obtained cookies the other way) in .env as found in the bottom of the file as USER_COOKIE_1="..."
     
 3.  **Start the service**
     ```bash
