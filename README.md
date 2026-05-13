@@ -33,7 +33,7 @@ When using multiple accounts, you need to take one extra step: set the access pe
 
 ### Step 2: Prepare AIStudio Cookie
 
-Cookies can be obtained in two ways; choose one. It is recommended to use a fingerprint browser to obtain them:
+Cookies can be obtained in two ways; choose one. It is recommended to use a fingerprint browser to obtain them (USE FIREFOX as browser fingerprint):
 
 Method 1: Use AdsPower fingerprint browser, log in to https://aistudio.google.com/ , log out, edit the browser environment, and copy the Cookie content as shown in the image below:
 
