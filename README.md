@@ -35,7 +35,7 @@ When using multiple accounts, you need to take one extra step: set the access pe
 
 Cookies can be obtained in two ways; choose one. It is recommended to use a fingerprint browser to obtain them (USE FIREFOX as browser fingerprint):
 
-Method 1: Use AdsPower fingerprint browser, log in to https://aistudio.google.com/ , log out, edit the browser environment, and copy the Cookie content as shown in the image below:
+Method 1 (Recommended): Use a fingerprint browser like AdsPower/BitBrowser, log in to https://aistudio.google.com/ , log out, edit the browser environment, and copy the Cookie content as shown in the image below:
 
 ![](https://img.072899.xyz/2025/11/c60399120703a24bdd450d38e31052a5.png)
 
@@ -70,14 +70,22 @@ If you have your own server (VPS), you can also use Docker Compose for deploymen
     ```
 
 2.  **Configure environment variables**
-    Copy `.env.example` to `.env` and fill in the necessary information (`CAMOUFOX_INSTANCE_URL`, `USER_COOKIE_1`, etc.).
+    Copy `.env.example` to `.env` and fill in the necessary information (`CAMOUFOX_INSTANCE_URL`, etc.).
 
-    You can also place Cookie files in JSON format in the `cookies` directory (the filename is arbitrary), and the program will automatically read them.
     ```bash
     cp .env.example .env
     nano .env
     ```
-
+    (Recommended) You can place Cookie files in JSON format in the `cookies` directory (the filename is arbitrary), and the program will automatically read them.
+    
+    ```bash
+    mkdir cookies
+    cd cookies
+    nano filename.json
+    ```
+    
+    Or you can also place your cookie token string (if you obtained cookies the other way) in .env at the bottomm as USER_COOKIE_1=...
+    
 3.  **Start the service**
     ```bash
     docker compose up -d --build
