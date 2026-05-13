@@ -148,88 +148,135 @@ def reconnect_ws(page: Page, logger=None) -> str:
 
 def dismiss_interaction_modal(page: Page, logger=None) -> bool:
     """
-    Detect and close interaction-modal or cdk-overlay-backdrop.
-    Trigger overlay closure by simulating mouse movement or clicking the backdrop.
+    Detect and dismiss various overlays on the page. Runs through multiple strategies
+    in a loop to handle stacked popups (dismissing one reveals another).
     
-    Returns: True if successful, False if not found or failed
+    Strategies:
+      1. Click visible dismiss buttons ("Skip", "Got it", "Dismiss", etc.) on the page
+      2. Click dismiss buttons inside the Preview iframe
+      3. Click elements with aria-label="Close"
+      4. Press Escape key
+      5. Mouse movement in iframe (for interaction-modal)
+      6. Click cdk-overlay-backdrop
+    
+    Also detects CAPTCHA/verification pages and logs a clear warning.
+    Returns: True if any overlay was handled, False if none found
     """
+    dismissed_any = False
+    
+    # Detect CAPTCHA/verification pages early
     try:
-        # Check for multiple types of overlays
-        modal = page.locator('div.interaction-modal, div.cdk-overlay-backdrop')
-        if modal.count() == 0 or not modal.first.is_visible(timeout=500):
-            return False
-        
-        if logger:
-            logger.info("Overlay detected (modal or backdrop), attempting to close...")
-        
-        # Strategy 1: Mouse movement in iframe (works for interaction-modal)
-        iframe = page.locator('iframe[title="Preview"]')
-        if iframe.count() > 0:
-            iframe_box = iframe.first.bounding_box()
-            if iframe_box:
-                curr_x = iframe_box['x'] + random.randint(50, int(iframe_box['width']) - 50)
-                curr_y = iframe_box['y'] + random.randint(50, int(iframe_box['height']) - 50)
-                
-                for i in range(20):
-                    delta_x = random.randint(-30, 30)
-                    delta_y = random.randint(-20, 20)
-                    curr_x = max(iframe_box['x'] + 20, min(iframe_box['x'] + iframe_box['width'] - 20, curr_x + delta_x))
-                    curr_y = max(iframe_box['y'] + 20, min(iframe_box['y'] + iframe_box['height'] - 20, curr_y + delta_y))
-                    page.mouse.move(curr_x, curr_y)
-                    time.sleep(0.05)
-                    
-                    if modal.count() == 0 or not modal.first.is_visible(timeout=100):
-                        if logger:
-                            logger.info("Successfully closed overlay via movement")
-                        return True
-
-        # Strategy 2: If still visible, try clicking the backdrop itself to dismiss (common for cdk-overlays)
-        if modal.first.is_visible(timeout=500):
-            modal.first.click(timeout=2000)
+        page_url = page.url
+        if "google.com/sorry" in page_url or "recaptcha" in page_url.lower():
             if logger:
-                logger.info("Successfully closed overlay via backdrop click")
-            return True
+                logger.error("CAPTCHA or verification page detected! URL: " + str(page_url))
+                logger.error("Manual intervention required - auto-dismissal not possible.")
+            # Still try to handle it but log prominently
+    except:
+        pass
+    
+    # Loop to handle stacked popups (dismiss one, another appears)
+    max_passes = 5
+    for pass_idx in range(max_passes):
+        handled_in_pass = False
         
-        return False
-    except Exception as e:
-        if logger:
-            logger.debug(f"Error closing interaction-modal/backdrop: {e}")
-        return False
-
-        
-        if logger:
-            logger.info("Interaction-modal detected, attempting to close...")
-        
-        iframe = page.locator('iframe[title="Preview"]')
-        if iframe.count() > 0:
-            iframe_box = iframe.first.bounding_box()
-            if iframe_box:
-                # Random start position
-                curr_x = iframe_box['x'] + random.randint(50, int(iframe_box['width']) - 50)
-                curr_y = iframe_box['y'] + random.randint(50, int(iframe_box['height']) - 50)
-                
-                # Continuously move until overlay closed, max 30 attempts
-                for i in range(30):
-                    # Move randomly from current position
-                    delta_x = random.randint(-30, 30)
-                    delta_y = random.randint(-20, 20)
-                    curr_x = max(iframe_box['x'] + 20, min(iframe_box['x'] + iframe_box['width'] - 20, curr_x + delta_x))
-                    curr_y = max(iframe_box['y'] + 20, min(iframe_box['y'] + iframe_box['height'] - 20, curr_y + delta_y))
-                    
-                    page.mouse.move(curr_x, curr_y)
-                    time.sleep(0.05)
-                    
-                    # Check if overlay is closed after each movement
-                    if modal.count() == 0 or not modal.first.is_visible(timeout=100):
+        # Strategy 1: Click visible dismiss buttons across the whole page
+        try:
+            for text in ["Skip", "Got it", "Dismiss", "Continue to the app"]:
+                try:
+                    btn = page.locator(f'button:visible:has-text("{text}")').first
+                    if btn.count() > 0 and btn.is_visible(timeout=300):
+                        btn.click(force=True, timeout=3000)
                         if logger:
-                            logger.info("Successfully closed interaction-modal overlay")
-                        return True
+                            logger.info(f"Clicked '{text}' button to dismiss overlay")
+                        handled_in_pass = True
+                        time.sleep(1)
+                except:
+                    pass
+        except:
+            pass
         
-        return False
-    except Exception as e:
-        if logger:
-            logger.debug(f"Error closing interaction-modal: {e}")
-        return False
+        # Strategy 2: Also search inside the Preview iframe for dismiss buttons
+        try:
+            frame = page.frame_locator('iframe[title="Preview"]')
+            for text in ["Skip", "Got it", "Dismiss", "Continue to the app", "Close"]:
+                try:
+                    btn = frame.locator(f'button:visible:has-text("{text}")').first
+                    if btn.count() > 0 and btn.is_visible(timeout=300):
+                        btn.click(force=True, timeout=3000)
+                        if logger:
+                            logger.info(f"Clicked '{text}' button inside iframe")
+                        handled_in_pass = True
+                        time.sleep(1)
+                except:
+                    pass
+        except:
+            pass
+        
+        # Strategy 3: Close buttons via aria-label
+        try:
+            close_btn = page.locator('[aria-label="Close"]').first
+            if close_btn.count() > 0 and close_btn.is_visible(timeout=300):
+                close_btn.click(timeout=2000)
+                if logger:
+                    logger.info("Clicked close button (aria-label=Close)")
+                handled_in_pass = True
+                time.sleep(1)
+        except:
+            pass
+        
+        # Strategy 4: Press Escape to close focused dialog
+        try:
+            page.keyboard.press("Escape")
+            time.sleep(0.3)
+        except:
+            pass
+        
+        # Strategy 5: Mouse movement in iframe (for interaction-modal)
+        try:
+            modal = page.locator('div.interaction-modal')
+            if modal.count() > 0 and modal.first.is_visible(timeout=200):
+                if logger and not handled_in_pass:
+                    logger.info("Interaction-modal detected, attempting to close via movement...")
+                iframe = page.locator('iframe[title="Preview"]')
+                if iframe.count() > 0:
+                    iframe_box = iframe.first.bounding_box()
+                    if iframe_box:
+                        curr_x = iframe_box['x'] + random.randint(50, int(iframe_box['width']) - 50)
+                        curr_y = iframe_box['y'] + random.randint(50, int(iframe_box['height']) - 50)
+                        for i in range(20):
+                            delta_x = random.randint(-30, 30)
+                            delta_y = random.randint(-20, 20)
+                            curr_x = max(iframe_box['x'] + 20, min(iframe_box['x'] + iframe_box['width'] - 20, curr_x + delta_x))
+                            curr_y = max(iframe_box['y'] + 20, min(iframe_box['y'] + iframe_box['height'] - 20, curr_y + delta_y))
+                            page.mouse.move(curr_x, curr_y)
+                            time.sleep(0.05)
+                            if modal.count() == 0 or not modal.first.is_visible(timeout=100):
+                                if logger:
+                                    logger.info("Closed interaction-modal via movement")
+                                handled_in_pass = True
+                                break
+        except:
+            pass
+        
+        # Strategy 6: Click cdk-overlay-backdrop
+        try:
+            backdrop = page.locator('div.cdk-overlay-backdrop')
+            if backdrop.count() > 0 and backdrop.first.is_visible(timeout=200):
+                backdrop.first.click(timeout=2000)
+                if logger and not handled_in_pass:
+                    logger.info("Closed overlay via backdrop click")
+                handled_in_pass = True
+                time.sleep(0.5)
+        except:
+            pass
+        
+        if handled_in_pass:
+            dismissed_any = True
+        else:
+            break  # No more overlays detected, exit loop
+    
+    return dismissed_any
 
 
 def click_in_iframe(page: Page, logger=None) -> bool:

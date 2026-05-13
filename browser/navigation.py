@@ -12,32 +12,62 @@ class KeepAliveError(Exception):
 def handle_popup_dialog(page: Page, logger=None):
     """
     检查并处理弹窗。
-    交替点击 Got it 和 Continue to the app 按钮直到没有弹窗。
+    遍历多种关闭按钮、iframe内按钮和关闭图标直到没有弹窗。
     """
     logger.info("Starting popup processing...")
     
-    # Define the list of buttons to look for
-    button_names = ["Got it", "Continue to the app"]
-    max_iterations = 10  # Max 10 attempts to prevent infinite loop
+    button_names = ["Got it", "Continue to the app", "Skip", "Dismiss"]
+    max_iterations = 10
     total_clicks = 0
     
     try:
         for iteration in range(max_iterations):
             clicked_in_round = False
-            
-            # Wait for page stability
             time.sleep(1)
             
-            # Try clicking all buttons alternately in each round
-            for button_name in button_names:
+            # Try clicking buttons on the main page
+            for name in button_names:
                 try:
-                    button_locator = page.locator(f'button:visible:has-text("{button_name}")')
-                    if button_locator.count() > 0 and button_locator.first.is_visible():
-                        # logger.info(f"Popup detected: clicking '{button_name}'")
-                        button_locator.first.click(force=True, timeout=2000)
+                    btn = page.locator(f'button:visible:has-text("{name}")').first
+                    if btn.count() > 0 and btn.is_visible():
+                        btn.click(force=True, timeout=2000)
                         total_clicks += 1
                         clicked_in_round = True
                         time.sleep(1)
+                except:
+                    pass
+            
+            # Try clicking buttons inside the Preview iframe
+            try:
+                frame = page.frame_locator('iframe[title="Preview"]')
+                for name in button_names:
+                    try:
+                        btn = frame.locator(f'button:visible:has-text("{name}")').first
+                        if btn.count() > 0 and btn.is_visible():
+                            btn.click(force=True, timeout=2000)
+                            total_clicks += 1
+                            clicked_in_round = True
+                            time.sleep(1)
+                    except:
+                        pass
+            except:
+                pass
+            
+            # Try aria-label close buttons
+            try:
+                close_btn = page.locator('[aria-label="Close"]').first
+                if close_btn.count() > 0 and close_btn.is_visible(timeout=300):
+                    close_btn.click(timeout=2000)
+                    total_clicks += 1
+                    clicked_in_round = True
+                    time.sleep(1)
+            except:
+                pass
+            
+            # Press Escape as fallback
+            if not clicked_in_round:
+                try:
+                    page.keyboard.press("Escape")
                 except:
                     pass
             
