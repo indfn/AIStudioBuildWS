@@ -187,11 +187,39 @@ def dismiss_interaction_modal(page: Page, logger=None) -> bool:
                 try:
                     btn = page.locator(f'button:visible:has-text("{text}")').first
                     if btn.count() > 0 and btn.is_visible(timeout=300):
-                        btn.click(force=True, timeout=3000)
-                        if logger:
-                            logger.info(f"Clicked '{text}' button to dismiss overlay")
-                        handled_in_pass = True
-                        time.sleep(1)
+                        clicked = False
+                        # Try normal click first (with actionability checks)
+                        try:
+                            btn.click(timeout=3000)
+                            clicked = True
+                        except:
+                            pass
+                        # If normal click failed (obscured), try force click
+                        if not clicked:
+                            try:
+                                btn.click(force=True, timeout=2000)
+                                clicked = True
+                            except:
+                                pass
+                        time.sleep(0.5)
+                        if clicked and (btn.count() == 0 or not btn.is_visible(timeout=500)):
+                            if logger:
+                                logger.info(f"Clicked '{text}' button to dismiss overlay")
+                            handled_in_pass = True
+                            time.sleep(0.5)
+                        else:
+                            # Click didn't take — try native JS click as fallback
+                            try:
+                                page.evaluate('(t) => { const e = [...document.querySelectorAll("button")].find(b => b.textContent.includes(t)); if(e) e.click(); }', text)
+                                time.sleep(0.5)
+                                if btn.count() == 0 or not btn.is_visible(timeout=500):
+                                    if logger:
+                                        logger.info(f"Clicked '{text}' via JS dispatch")
+                                    handled_in_pass = True
+                                elif logger:
+                                    logger.debug(f"'{text}' still visible after all click methods")
+                            except:
+                                pass
                 except:
                     pass
         except:
@@ -204,25 +232,47 @@ def dismiss_interaction_modal(page: Page, logger=None) -> bool:
                 try:
                     btn = frame.locator(f'button:visible:has-text("{text}")').first
                     if btn.count() > 0 and btn.is_visible(timeout=300):
-                        btn.click(force=True, timeout=3000)
-                        if logger:
-                            logger.info(f"Clicked '{text}' button inside iframe")
-                        handled_in_pass = True
-                        time.sleep(1)
+                        clicked = False
+                        try:
+                            btn.click(timeout=3000)
+                            clicked = True
+                        except:
+                            pass
+                        if not clicked:
+                            try:
+                                btn.click(force=True, timeout=2000)
+                                clicked = True
+                            except:
+                                pass
+                        time.sleep(0.5)
+                        if clicked and (btn.count() == 0 or not btn.is_visible(timeout=500)):
+                            if logger:
+                                logger.info(f"Clicked '{text}' button inside iframe")
+                            handled_in_pass = True
+                            time.sleep(0.5)
+                        elif not clicked and logger:
+                            logger.debug(f"'{text}' in iframe could not be clicked (obscured)")
                 except:
                     pass
         except:
             pass
         
-        # Strategy 3: Close buttons via aria-label
+        # Strategy 3: Close buttons inside overlay/dialog containers only
+        # Narrow scope to avoid matching persistent sidebar/model-selector close buttons
         try:
-            close_btn = page.locator('[aria-label="Close"]').first
-            if close_btn.count() > 0 and close_btn.is_visible(timeout=300):
-                close_btn.click(timeout=2000)
-                if logger:
-                    logger.info("Clicked close button (aria-label=Close)")
-                handled_in_pass = True
-                time.sleep(1)
+            for sel in ['[role="dialog"] [aria-label="Close"]', '[role="alertdialog"] [aria-label="Close"]', '.cdk-overlay-pane [aria-label="Close"]']:
+                close_btn = page.locator(sel).first
+                if close_btn.count() > 0 and close_btn.is_visible(timeout=300):
+                    close_btn.click(timeout=2000)
+                    time.sleep(0.5)
+                    # Only count if the element actually disappeared
+                    if close_btn.count() == 0 or not close_btn.is_visible(timeout=300):
+                        if logger:
+                            logger.info("Closed overlay via " + sel.split(" ")[-1])
+                        handled_in_pass = True
+                    else:
+                        if logger:
+                            logger.debug("Close button still visible, retrying")
         except:
             pass
         
