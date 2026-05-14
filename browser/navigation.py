@@ -1,10 +1,9 @@
 import time
 import os
-import random
 from playwright.sync_api import Page, expect
 from utils.paths import logs_dir
 from utils.common import ensure_dir
-from browser.ws_helper import reconnect_ws, get_ws_status, dismiss_interaction_modal, click_in_iframe
+from browser.ws_helper import get_ws_status, dismiss_interaction_modal, click_in_iframe
 
 class KeepAliveError(Exception):
     pass
@@ -81,7 +80,7 @@ def handle_popup_dialog(page: Page, logger=None):
     except Exception as e:
         logger.info(f"Unexpected error while checking for popups: {e}, will continue execution...")
 
-def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdown_event=None, cookie_validator=None):
+def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdown_event=None):
     """
     在成功导航到目标页面后，执行后续操作（处理弹窗、保持运行）。
     """
@@ -103,23 +102,17 @@ def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdow
     except Exception as e:
         logger.warning(f"Failed to save screenshot: {e}")
 
-    if cookie_validator:
-        logger.info("Cookie validator created, will periodically verify Cookie validity")
-
     logger.info("Instance will remain running. Clicking the page every 10 seconds to keep it active")
 
     # Wait for page loading and rendering
     time.sleep(15)
 
     # Record initial WS status
-    last_ws_status = get_ws_status(page, logger)
-    logger.info(f"Initial WS status: {last_ws_status}")
+    current_ws_status = get_ws_status(page, logger)
+    logger.info(f"Initial WS status: {current_ws_status}")
 
-    # Add Cookie validation counter
-    click_counter = 0
-
-    # Initialize anti-bot refresh timer
-    next_heartbeat_time = time.time() + random.randint(50 * 60, 80 * 60) # 50-80 minutes
+    # Track whether we've ever seen CONNECTED (avoids startup false alarms)
+    ever_been_connected = (current_ws_status == "CONNECTED")
 
     while True:
         # Check if shutdown signal received
@@ -131,42 +124,30 @@ def handle_successful_navigation(page: Page, logger, cookie_file_config, shutdow
             # Detect and close interaction-modal overlay (if it appears)
             dismiss_interaction_modal(page, logger)
 
+            # Check for an app-paused / reload interstitial that blocks the page
+            try:
+                paused = page.locator('button:visible:has-text("Reload")').first
+                if paused.count() > 0:
+                    logger.warning("App paused screen detected, clicking 'Reload' to restore...")
+                    paused.click(timeout=5000)
+                    time.sleep(5)
+                    handle_popup_dialog(page, logger=logger)
+                    ever_been_connected = False
+            except:
+                pass
+
             # Randomly move and click in iframe to keep alive
             click_in_iframe(page, logger)
-            click_counter += 1
 
-            # Check if WS status has changed
+            # Check WS status (monitor only — webapp handles its own reconnection)
             current_ws_status = get_ws_status(page, logger)
-            if current_ws_status != last_ws_status:
-                logger.warning(f"WS status change: {last_ws_status} -> {current_ws_status}")
-                
-                # If not CONNECTED status, attempt reconnect
-                if current_ws_status != "CONNECTED":
-                    logger.info("WS disconnected, attempting to reconnect...")
-                    reconnect_ws(page, logger)
-                    current_ws_status = get_ws_status(page, logger)
-                    logger.info(f"WS status after reconnection: {current_ws_status}")
-                
-                last_ws_status = current_ws_status
-
-            # Perform full Cookie validation every 360 clicks (1 hour)
-            if cookie_validator and click_counter >= 360:  # 360 * 10 seconds = 3600 seconds = 1 hour
-                is_valid = cookie_validator.validate_cookies_in_main_thread()
-
-                if not is_valid:
-                    cookie_validator.shutdown_instance_on_cookie_failure()
-                    return
-
-                click_counter = 0  # Reset counter
-
-            # Probabilistic anti-bot heartbeat reload
-            if time.time() > next_heartbeat_time:
-                logger.info("Triggered probabilistic heartbeat reload")
-                page.reload(wait_until='networkidle')
-                time.sleep(5)
-                handle_popup_dialog(page, logger=logger)
-                next_heartbeat_time = time.time() + random.randint(50 * 60, 80 * 60)
-                logger.info(f"Heartbeat reload complete. Next reload at {time.ctime(next_heartbeat_time)}")
+            if current_ws_status == "CONNECTED":
+                if not ever_been_connected:
+                    logger.info("WS endpoint is reachable")
+                    ever_been_connected = True
+            elif ever_been_connected:
+                logger.info(f"WS endpoint unreachable (status: {current_ws_status}), webapp will auto-reconnect when tunnel is available")
+                ever_been_connected = False
 
             # Use interruptible sleep, checking shutdown signal every second
             for _ in range(10):  # 10 seconds = 10 checks of 1 second

@@ -6,7 +6,8 @@ Provides basic functionalities commonly used in the project.
 
 import os
 import random
-from datetime import datetime, timedelta
+import time as time_module
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 def clean_env_value(value):
@@ -55,11 +56,35 @@ def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
+def get_tz_offset():
+    """Read TZ_OFFSET env var (hours), default to 8 (UTC+8)."""
+    try:
+        return float(os.getenv('TZ_OFFSET', 8))
+    except (ValueError, TypeError):
+        return 8.0
+
+
+def format_time(dt=None):
+    """Format a datetime or Unix timestamp to string in the configured TZ_OFFSET timezone."""
+    offset = get_tz_offset()
+    target_tz = timezone(timedelta(hours=offset))
+
+    if dt is None:
+        dt = datetime.now(timezone.utc)
+    elif isinstance(dt, (int, float)):
+        dt = datetime.fromtimestamp(dt, tz=timezone.utc)
+    elif dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    return dt.astimezone(target_tz).strftime('%Y-%m-%d %H:%M:%S')
+
+
 def get_next_refresh_time(min_hours=6, max_hours=10):
     """
-    Calculate a random refresh time between min_hours and max_hours from now.
+    Calculate a random refresh time between min_hours and max_hours from now (UTC).
+    Returns a timezone-aware UTC datetime for internal consistency.
     """
-    now = datetime.now()
+    now = datetime.now(timezone.utc)
     
     try:
         low = float(min_hours)
@@ -78,5 +103,4 @@ def get_next_refresh_time(min_hours=6, max_hours=10):
         random_hours = random.uniform(low, high)
         return now + timedelta(hours=random_hours)
     except (OverflowError, ValueError):
-        # Fallback to a safe 8 hours if calculation fails
         return now + timedelta(hours=8)

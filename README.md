@@ -8,7 +8,10 @@ This is a fork of `hkfires/AIStudioBuildWS` enhanced with **Session Permanence**
 - **Persistent Cookie Sync**: Newly acquired session cookies are automatically saved back to the JSON files or environment variables, allowing sessions to persist across Docker restarts or system reboots.
 - **Over-the-Air Popup Dismissal**: Automatically detects and dismisses Google "Terms of Service" or "Got it" overlays that frequently block headless automation.
 - **Multi-Process Safety**: Thread-safe cookie management ensures that multiple browser instances (accounts) can run concurrently without file corruption.
-
+- **Cookie Expiry Checks**: On startup, inspects every cookie's `expires` field and warns if the shortest-lived cookie expires before the next scheduled refresh (or if it's already expired).
+- **Adaptive Refresh Scheduling**: If a cookie expires sooner than the normal refresh window, the system automatically brings the refresh forward to 30 minutes before expiry — no manual intervention needed.
+- **Cookie Rotation Audit**: After each refresh, logs exactly which cookies changed value (token rotation) and how much time was added to their expiry, confirming the refresh actually worked.
+- **Urgent Retry Safety Net**: If a refresh fails to extend cookie lifetimes, the system retries in 5 minutes instead of sleeping for hours.
 ---
 
 > **Note:** The deployment scheme in this tutorial requires use with `CLIProxyAPI`. Before starting, ensure you have a running `CLIProxyAPI` instance.
