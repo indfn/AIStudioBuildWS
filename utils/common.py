@@ -79,6 +79,16 @@ def format_time(dt=None):
     return dt.astimezone(target_tz).strftime('%Y-%m-%d %H:%M:%S')
 
 
+def format_duration(hours):
+    """Convert hours to a human-readable duration string."""
+    if hours < 1:
+        return f"{hours*60:.0f}min"
+    elif hours < 24:
+        return f"{hours:.1f}h"
+    else:
+        return f"{hours/24:.1f}d"
+
+
 def get_next_refresh_time(min_hours=6, max_hours=10):
     """
     Calculate a random refresh time between min_hours and max_hours from now (UTC).
@@ -104,3 +114,12 @@ def get_next_refresh_time(min_hours=6, max_hours=10):
         return now + timedelta(hours=random_hours)
     except (OverflowError, ValueError):
         return now + timedelta(hours=8)
+
+
+
+def compute_next_refresh(cookies, refresh_min, refresh_max, logger):
+    """Return a random refresh time in the configured interval.
+    Google auth cookies have multi-year expirationDate values, so the server-side
+    session TTL (~24h) cannot be inferred from cookie data — adaptive scheduling
+    would never trigger. The random interval refresh is the primary protection."""
+    return get_next_refresh_time(refresh_min, refresh_max)

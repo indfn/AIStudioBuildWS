@@ -16,6 +16,11 @@ def convert_cookie_editor_to_playwright(cookies_from_editor, logger=None):
                 pw_cookie['expires'] = int(cookie['expirationDate'])
             else:
                 pw_cookie['expires'] = -1
+        elif 'expires' in cookie:
+            if cookie['expires'] is not None and cookie['expires'] > 0:
+                pw_cookie['expires'] = int(cookie['expires'])
+            else:
+                pw_cookie['expires'] = -1
 
         if 'sameSite' in cookie:
             same_site_value = str(cookie['sameSite']).lower()

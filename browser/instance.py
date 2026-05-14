@@ -1,251 +1,14 @@
 import os
 import signal
 import time
-import threading
-from datetime import datetime, timezone, timedelta
 from playwright.sync_api import TimeoutError, Error as PlaywrightError
 from utils.logger import setup_logging
 from utils.cookie_manager import CookieManager
 from browser.navigation import handle_successful_navigation, KeepAliveError, handle_popup_dialog
 from camoufox.sync_api import Camoufox
 from utils.paths import logs_dir
-from utils.common import parse_headless_mode, ensure_dir, get_next_refresh_time, format_time
+from utils.common import parse_headless_mode, ensure_dir, compute_next_refresh
 from utils.url_helper import extract_url_path, mask_url_for_logging, mask_path_for_logging
-
-def _compute_next_refresh(cookies, refresh_min, refresh_max, logger, buffer_minutes=30):
-    """Pick a random refresh time, but bring it forward if a cookie expires sooner."""
-    planned = get_next_refresh_time(refresh_min, refresh_max)
-
-    now_ts = time.time()
-    min_expiry = None
-    min_name = ""
-    for c in cookies:
-        exp = c.get('expires') or c.get('expirationDate')
-        if exp and isinstance(exp, (int, float)) and exp > 0:
-            if min_expiry is None or exp < min_expiry:
-                min_expiry = exp
-                min_name = c.get('name', 'unknown')
-
-    if min_expiry:
-        forced_ts = min_expiry - buffer_minutes * 60
-        planned_ts = planned.timestamp()
-
-        if forced_ts <= now_ts + 60:
-            urgent = datetime.now(timezone.utc) + timedelta(minutes=5)
-            logger.warning(f"Cookie '{min_name}' expires at {format_time(min_expiry)} — too soon for buffered refresh. Urgent retry in 5min.")
-            return urgent
-
-        if forced_ts < planned_ts:
-            forced_dt = datetime.fromtimestamp(forced_ts, tz=timezone.utc)
-            logger.info(f"Cookie '{min_name}' expires at {format_time(min_expiry)} — bringing refresh forward to {format_time(forced_dt)} ({buffer_minutes}min before expiry)")
-            return forced_dt
-
-    return planned
-
-
-def _cookie_sync_loop(context, cookie_manager, cookie_source, logger, shutdown_event, page=None, expected_url=None):
-    """Background daemon thread to perform scheduled refreshes and save new cookies"""
-    
-    # Initialize refresh timing from intervals (in hours)
-    refresh_min = os.getenv("REFRESH_INTERVAL_MIN", "6")
-    refresh_max = os.getenv("REFRESH_INTERVAL_MAX", "10")
-    spinner_timeout_ms = int(os.getenv("SPINNER_TIMEOUT_MS", "300000"))
-    
-    next_refresh = _compute_next_refresh(context.cookies(), refresh_min, refresh_max, logger)
-    logger.info(f"Initial refresh scheduled for: {format_time(next_refresh)}")
-
-    while not (shutdown_event and shutdown_event.is_set()):
-        # Critical: check if the page associated with THIS thread is still active
-        if not page or page.is_closed():
-            logger.info("Associated page is closed. Terminating background refresh thread.")
-            break
-
-        try:
-            # Check if it's time to refresh
-            now = datetime.now(timezone.utc)
-            if now >= next_refresh:
-                logger.info("Scheduled refresh time reached. Checking page state...")
-
-                try:
-                    # --- Sanity check: verify page is on the right URL ---
-                    if page.is_closed():
-                        break
-
-                    current_url = page.url
-
-                    # Check for known bad pages (login, CAPTCHA, etc.)
-                    bad_patterns = [
-                        "accounts.google.com/v3/signin/identifier",
-                        "accounts.google.com/v3/signin/accountchooser",
-                        "google.com/sorry",
-                    ]
-                    if any(p in current_url for p in bad_patterns):
-                        logger.warning(f"Skipping refresh: page is on login/error page. URL: {mask_url_for_logging(current_url)}")
-                        next_refresh = datetime.now(timezone.utc) + timedelta(minutes=5)
-                        logger.info("Quick retry scheduled in 5 minutes")
-                        continue
-
-                    # Check URL path matches expected
-                    if expected_url:
-                        expected_path = extract_url_path(expected_url).split('?')[0]
-                        current_path = extract_url_path(current_url)
-                        if expected_path and expected_path not in current_path:
-                            logger.warning(f"Skipping refresh: unexpected URL path. Expected: {mask_path_for_logging(expected_path)}, Got: {mask_path_for_logging(current_path)}")
-                            next_refresh = datetime.now(timezone.utc) + timedelta(minutes=5)
-                            logger.info("Quick retry scheduled in 5 minutes")
-                            continue
-                except Exception as check_e:
-                    logger.warning(f"Page state check failed, scheduling quick retry: {check_e}")
-                    next_refresh = datetime.now(timezone.utc) + timedelta(minutes=5)
-                    continue
-
-                # Page state verified — proceed with refresh
-                logger.info("Page state OK. Checking for active generation...")
-
-                try:
-                    # Smart Wait: Check for mat-spinner
-                    spinner_locator = page.locator('mat-spinner').first
-
-                    # If spinner is visible, wait for it to disappear
-                    # Use a very short timeout for the initial check to avoid blocking
-                    try:
-                        is_generating = spinner_locator.is_visible(timeout=500)
-                    except:
-                        is_generating = False
-
-                    if is_generating:
-                        logger.info("Generation active (spinner visible). Waiting for it to finish before refresh...")
-                        try:
-                            # Wait for generation to finish or timeout
-                            spinner_locator.wait_for(state='hidden', timeout=spinner_timeout_ms)
-                            logger.info("Generation finished. Waiting 2 seconds for stability...")
-                            time.sleep(2)
-                        except TimeoutError:
-                            logger.warning(f"Spinner wait timed out ({spinner_timeout_ms/1000}s). Proceeding with refresh anyway to avoid session expiry.")
-                    
-                    # Re-verify page is still open before navigation
-                    if page.is_closed():
-                        break
-
-                    # Snapshot cookies before reload for diff
-                    try:
-                        before = {c['name']: c for c in context.cookies()}
-                    except:
-                        before = {}
-
-                    # Perform page reload
-                    logger.info("Reloading page to refresh authentication...")
-                    page.reload(wait_until='domcontentloaded', timeout=90000)
-                    
-                    # Wait for loading indicator (spinner) to disappear (initial page load spinner)
-                    try:
-                        spinner_locator.wait_for(state='hidden', timeout=30000)
-                    except TimeoutError:
-                        logger.warning("Loading indicator did not disappear after refresh reload, proceeding anyway")
-                    
-                    # Handle any popups that might have reappeared
-                    handle_popup_dialog(page, logger=logger)
-                    
-                    # Save fresh cookies ONLY after refresh
-                    cookies = context.cookies()
-                    cookie_manager.save_cookies(cookie_source, cookies)
-                    
-                    # Diff cookies to confirm refresh did something
-                    if before:
-                        after = {c['name']: c for c in cookies}
-                        now_ts = time.time()
-                        for name in sorted(after):
-                            ac = after[name]
-                            if name in before:
-                                bc = before[name]
-                                if bc.get('value') != ac.get('value'):
-                                    logger.info(f"  Cookie '{name}': value changed")
-                                bc_exp, ac_exp = bc.get('expires'), ac.get('expires')
-                                if bc_exp and ac_exp and ac_exp > bc_exp:
-                                    gained = (ac_exp - bc_exp) / 3600
-                                    logger.info(f"  Cookie '{name}': expiry extended by {gained:.1f}h")
-                            else:
-                                logger.info(f"  Cookie '{name}': NEW")
-                        for name in sorted(before):
-                            if name not in after:
-                                logger.info(f"  Cookie '{name}': DELETED")
-
-                        # Compute shortest remaining TTL across all cookies
-                        ttl_hours = []
-                        for c in cookies:
-                            exp = c.get('expires')
-                            if exp and exp > now_ts:
-                                ttl_hours.append(((exp - now_ts) / 3600, c['name']))
-                        if ttl_hours:
-                            min_ttl, min_name = min(ttl_hours, key=lambda x: x[0])
-                            logger.info(f"  Session valid ~{format_time(now_ts + min_ttl * 3600)} ({min_ttl:.1f}h from now, shortest-lived cookie: '{min_name}')")
-
-                    _check_cookie_expiry(cookies, logger, cookie_source.display_name)
-
-                    logger.info(f"Auth refresh successful: Saved {len(cookies)} new cookies")
-                         
-                except Exception as refresh_e:
-                    if "Target closed" in str(refresh_e) or "context or browser has been closed" in str(refresh_e):
-                        logger.info("Browser target closed during refresh. Thread exiting.")
-                        break
-                    logger.error(f"Error during scheduled auth refresh: {refresh_e}")
-                
-                # Calculate next refresh time (interval based, adjusted for cookie expiry)
-                try:
-                    next_refresh = _compute_next_refresh(context.cookies(), refresh_min, refresh_max, logger)
-                except:
-                    next_refresh = get_next_refresh_time(refresh_min, refresh_max)
-                logger.info(f"Next refresh scheduled for: {format_time(next_refresh)}")
-
-            # Sleep in small chunks so we can exit quickly on shutdown or page close
-            for _ in range(10): # Check every second for responsiveness
-                if (shutdown_event and shutdown_event.is_set()) or page.is_closed():
-                    break
-                time.sleep(1)
-                
-        except Exception as e:
-            if "Target closed" in str(e):
-                break
-            logger.error(f"Error in refresh loop: {e}")
-            time.sleep(30)
-
-
-
-
-
-def _check_cookie_expiry(cookies, logger, label):
-    """Warn if cookies expire so soon that auto-refresh can't save them.
-    Returns True if OK to proceed, False if cookies are too stale to bother starting."""
-    now = time.time()
-    min_ttl = float('inf')
-    min_name = ""
-
-    for c in cookies:
-        exp = c.get('expires') or c.get('expirationDate')
-        if exp and isinstance(exp, (int, float)) and exp > 0:
-            ttl = exp - now
-            if ttl < min_ttl:
-                min_ttl = ttl
-                min_name = c.get('name', 'unknown')
-
-    if min_ttl == float('inf'):
-        logger.info("Cookie expiry check: no dated cookies found (all session cookies?)")
-        return True
-
-    min_ttl_hours = min_ttl / 3600
-
-    if min_ttl_hours <= 0:
-        logger.error(f"Cookie '{min_name}' already expired! — this account will fail to log in.")
-        return False
-    elif min_ttl_hours <= 0.5:
-        logger.error(f"Cookie '{min_name}' expires in {min_ttl_hours*60:.0f}min — too soon to auto-refresh. Get new cookies now!")
-        return False
-    elif min_ttl_hours < float(os.getenv("REFRESH_INTERVAL_MIN", "6")):
-        logger.info(f"Cookie '{min_name}' expires in {min_ttl_hours:.1f}h — system will auto-refresh before expiry.")
-        return True
-    else:
-        logger.info(f"Cookie '{min_name}' expires in {min_ttl_hours:.1f}h — safe.")
-        return True
 
 
 def run_browser_instance(config, shutdown_event=None):
@@ -295,11 +58,6 @@ def run_browser_instance(config, shutdown_event=None):
 
     cookies = all_cookies
 
-    # Check cookie expiry against scheduled refresh window
-    if not _check_cookie_expiry(cookies, logger, instance_label):
-        logger.error("Cookies too stale to start instance. Get fresh cookies and restart.")
-        return
-
     headless_mode = parse_headless_mode(headless_setting)
     launch_options = {"headless": headless_mode}
     # launch_options["block_images"] = True  # Disable image loading
@@ -327,14 +85,6 @@ def run_browser_instance(config, shutdown_event=None):
                 context = browser.new_context()
                 context.add_cookies(cookies)
                 page = context.new_page()
-
-                # Start background refresh thread
-                sync_thread = threading.Thread(
-                    target=_cookie_sync_loop,
-                    args=(context, cookie_manager, cookie_source, logger, shutdown_event, page, expected_url),
-                    daemon=True
-                )
-                sync_thread.start()
 
                 ####################################################################
                 ############ Enhanced page.goto() error handling and logging ###############
@@ -463,7 +213,9 @@ def run_browser_instance(config, shutdown_event=None):
                     # --- If all checks pass, assume success ---
                     logger.info("All validations passed, confirmed successful login")
 
-                    handle_successful_navigation(page, logger, diagnostic_tag, shutdown_event)
+                    handle_successful_navigation(page, logger, diagnostic_tag, shutdown_event,
+                                                  context=context, cookie_manager=cookie_manager,
+                                                  cookie_source=cookie_source, expected_url=expected_url)
                 elif "accounts.google.com/v3/signin/accountchooser" in final_url:
                     logger.warning("Google account selection page detected. Login failed or Cookie expired")
                     page.screenshot(path=os.path.join(screenshot_dir, f"FAIL_chooser_click_failed_{diagnostic_tag}.png"))

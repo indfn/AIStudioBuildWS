@@ -3,15 +3,14 @@
 This is a fork of `hkfires/AIStudioBuildWS` enhanced with **Session Permanence** logic. It enables long-term, low-maintenance deployment on VPS or HuggingFace by automatically rotating session tokens and persisting them to disk.
 
 ### Key Fork Enhancements
-- **Probabilistic Auth Refresh**: Automatically reloads the AI Studio page at randomized intervals (default 8-11 hours) to rotate session tokens before they expire (preventing the common 16-24h logout).
-- **Generation-Aware Scheduling**: Logically detects if a generation is currently active (via `mat-spinner`) and waits for it to finish before triggering a refresh.
-- **Persistent Cookie Sync**: Newly acquired session cookies are automatically saved back to the JSON files or environment variables, allowing sessions to persist across Docker restarts or system reboots.
-- **Over-the-Air Popup Dismissal**: Automatically detects and dismisses Google "Terms of Service" or "Got it" overlays that frequently block headless automation.
+- **Probabilistic Auth Refresh**: Automatically reloads the AI Studio page at randomized intervals (default 6-11 hours) to rotate session tokens before they expire (preventing the common 16-24h server-side logout). Note: Google auth cookies carry multi-year `expirationDate` values, but the actual session is revoked server-side every ~24h — the random interval refresh is the real protection, not cookie expiry tracking.
+- **Persistent Cookie Sync**: Newly acquired session cookies are automatically saved back to the JSON files, allowing sessions to persist across Docker restarts or system reboots.
+- **Over-the-Air Popup Dismissal**: Automatically detects and dismisses Google "Terms of Service", "Got it", "Next", "Try it out", and "Reload the app" overlays that frequently block headless automation.
 - **Multi-Process Safety**: Thread-safe cookie management ensures that multiple browser instances (accounts) can run concurrently without file corruption.
-- **Cookie Expiry Checks**: On startup, inspects every cookie's `expires` field and warns if the shortest-lived cookie expires before the next scheduled refresh (or if it's already expired).
-- **Adaptive Refresh Scheduling**: If a cookie expires sooner than the normal refresh window, the system automatically brings the refresh forward to 30 minutes before expiry — no manual intervention needed.
+- **Main-Thread Refresh**: Auth refresh runs in the main keep-alive loop (not a background thread), avoiding Playwright's greenlet cross-thread crash that would silently kill the refresh. The refresh verifies post-reload page state (no login redirect, no auth error banner, no login button) before saving cookies.
 - **Cookie Rotation Audit**: After each refresh, logs exactly which cookies changed value (token rotation) and how much time was added to their expiry, confirming the refresh actually worked.
-- **Urgent Retry Safety Net**: If a refresh fails to extend cookie lifetimes, the system retries in 5 minutes instead of sleeping for hours.
+- **Manual Force-Refresh**: Touch `/tmp/force_refresh` inside the container to trigger an immediate refresh cycle on the next keep-alive iteration — useful for debugging.
+- **Post-Refresh Validation**: After a scheduled refresh, validates that the page landed on the expected URL, no login/account-chooser page appeared, no "authentication error" banner is visible, and no "Login" button is displayed. If validation fails, cookies are NOT saved and a 5-minute retry is scheduled.
 ---
 
 > **Note:** The deployment scheme in this tutorial requires use with `CLIProxyAPI`. Before starting, ensure you have a running `CLIProxyAPI` instance.
@@ -97,3 +96,20 @@ If you have your own server (VPS), you can also use Docker Compose for deploymen
 After successful deployment, we should see logs similar to the following in `CLIProxyAPI`. With this, the entire deployment is complete.
 
 ![](https://img.072899.xyz/2025/11/e0db39f81a3bbb956cbe9364e656a76f.png)
+
+### Debugging: Manual Cookie Refresh
+
+While the container is running, you can force an immediate cookie refresh to debug the process:
+
+```bash
+# Trigger refresh for ALL running instances:
+docker compose exec aistudio-websocket-app ./scripts/force-refresh.sh
+
+# Trigger refresh for a specific account:
+docker compose exec aistudio-websocket-app ./scripts/force-refresh.sh account2.json
+
+# Watch the refresh happen in logs:
+docker compose logs -f
+```
+
+This touches a trigger file in `/tmp/force_refresh` (or `/tmp/force_refresh_<filename>` for a specific account). The keep-alive loop detects the file, removes it, and runs the full refresh cycle immediately — URL check, spinner wait, page reload, popup handling, cookie save, and diff logging.
