@@ -109,10 +109,10 @@ def _do_scheduled_refresh(page, context, cookie_manager, cookie_source, logger, 
     except:
         before = {}
 
-    # --- Reload page ---
+    # --- Reload page (use goto instead of reload to bypass beforeunload dialogs) ---
     try:
         logger.info("Reloading page to refresh authentication...")
-        page.reload(wait_until='domcontentloaded', timeout=90000)
+        page.goto(page.url, wait_until='domcontentloaded', timeout=90000)
     except Exception as e:
         if "Target closed" in str(e) or "context or browser has been closed" in str(e):
             raise
@@ -177,44 +177,58 @@ def _do_scheduled_refresh(page, context, cookie_manager, cookie_source, logger, 
     except:
         pass
 
-    # --- Save fresh cookies (only if validation passed) ---
+    # --- Compare cookies with pre-reload snapshot and save if meaningful changes ---
     try:
         cookies = context.cookies()
-        cookie_manager.save_cookies(cookie_source, cookies)
+        meaningful_change = True  # default to save if no before snapshot
+
+        if before and cookies:
+            after = {c['name']: c for c in cookies}
+            now_ts = time.time()
+            value_changed = False
+            new_cookies = False
+            deleted_cookies = False
+
+            for name in sorted(after):
+                ac = after[name]
+                if name in before:
+                    bc = before[name]
+                    if bc.get('value') != ac.get('value'):
+                        logger.info(f"  Cookie '{name}': value changed")
+                        value_changed = True
+                    bc_exp, ac_exp = bc.get('expires'), ac.get('expires')
+                    if bc_exp and ac_exp and ac_exp > bc_exp:
+                        gained = (ac_exp - bc_exp) / 3600
+                        logger.info(f"  Cookie '{name}': expiry extended by {gained:.1f}h")
+                else:
+                    logger.info(f"  Cookie '{name}': NEW")
+                    new_cookies = True
+            for name in sorted(before):
+                if name not in after:
+                    logger.info(f"  Cookie '{name}': DELETED")
+                    deleted_cookies = True
+
+            meaningful_change = value_changed or new_cookies or deleted_cookies
+
+            if cookies:
+                ttl_hours = []
+                for c in cookies:
+                    exp = c.get('expires')
+                    if exp and exp > now_ts:
+                        ttl_hours.append(((exp - now_ts) / 3600, c['name']))
+                if ttl_hours:
+                    min_ttl, min_name = min(ttl_hours, key=lambda x: x[0])
+                    logger.info(f"  Shortest-lived cookie '{min_name}': {format_duration(min_ttl)}")
+
+        if meaningful_change:
+            cookie_manager.save_cookies(cookie_source, cookies)
+            logger.info(f"Auth refresh successful: Saved {len(cookies)} cookies (changes detected)")
+        else:
+            logger.info(f"Auth refresh successful: Skipped file write — no value changes (expiry only)")
     except Exception as e:
-        logger.error(f"Failed to save cookies after refresh: {e}")
+        logger.error(f"Failed to process cookies after refresh: {e}")
         return datetime.now(timezone.utc) + timedelta(minutes=5)
 
-    # --- Cookie diff ---
-    if before and cookies:
-        after = {c['name']: c for c in cookies}
-        now_ts = time.time()
-        for name in sorted(after):
-            ac = after[name]
-            if name in before:
-                bc = before[name]
-                if bc.get('value') != ac.get('value'):
-                    logger.info(f"  Cookie '{name}': value changed")
-                bc_exp, ac_exp = bc.get('expires'), ac.get('expires')
-                if bc_exp and ac_exp and ac_exp > bc_exp:
-                    gained = (ac_exp - bc_exp) / 3600
-                    logger.info(f"  Cookie '{name}': expiry extended by {gained:.1f}h")
-            else:
-                logger.info(f"  Cookie '{name}': NEW")
-        for name in sorted(before):
-            if name not in after:
-                logger.info(f"  Cookie '{name}': DELETED")
-
-        ttl_hours = []
-        for c in cookies:
-            exp = c.get('expires')
-            if exp and exp > now_ts:
-                ttl_hours.append(((exp - now_ts) / 3600, c['name']))
-        if ttl_hours:
-            min_ttl, min_name = min(ttl_hours, key=lambda x: x[0])
-            logger.info(f"  Shortest-lived cookie '{min_name}': {format_duration(min_ttl)} (note: Google auth cookies have multi-year expirations but server-side session ~24h)")
-
-    logger.info(f"Auth refresh successful: Saved {len(cookies)} new cookies")
     return compute_next_refresh(cookies, refresh_min, refresh_max, logger)
 
 
