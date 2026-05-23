@@ -3,17 +3,16 @@
 This is a fork of `hkfires/AIStudioBuildWS` enhanced with **Session Permanence** logic. It enables long-term, low-maintenance deployment on VPS or HuggingFace by automatically rotating session tokens and persisting them to disk.
 
 ### Key Fork Enhancements
-- **Probabilistic Auth Refresh**: Automatically reloads the AI Studio page at randomized intervals (default 6-11 hours) to rotate session tokens before they expire (preventing the common 16-24h server-side logout). Note: Google auth cookies carry multi-year `expirationDate` values, but the actual session is revoked server-side every ~24h — the random interval refresh is the real protection, not cookie expiry tracking.
+- **Probabilistic Auth Refresh**: Automatically reloads the AI Studio page at randomized intervals (default 6-9 hours) to rotate session tokens before they expire (preventing the common 16-24h server-side logout).
 - **Persistent Cookie Sync**: Newly acquired session cookies are automatically saved back to the JSON files, allowing sessions to persist across Docker restarts or system reboots.
-- **Over-the-Air Popup Dismissal**: Automatically detects and dismisses Google "Terms of Service", "Got it", "Next", "Try it out", and "Reload the app" overlays that frequently block headless automation.
+- **Over-the-Air Popup Dismissal**: Automatically detects and dismisses Google "Terms of Service", "Got it", "Next", "Try it out", "Reload the app" and other common overlays that frequently block headless automation.
 - **Multi-Process Safety**: Thread-safe cookie management ensures that multiple browser instances (accounts) can run concurrently without file corruption.
 - **Main-Thread Refresh**: Auth refresh runs in the main keep-alive loop (not a background thread), avoiding Playwright's greenlet cross-thread crash that would silently kill the refresh. The refresh verifies post-reload page state (no login redirect, no auth error banner, no login button) before saving cookies.
 - **Cookie Rotation Audit**: After each refresh, logs exactly which cookies changed value (token rotation) and how much time was added to their expiry, confirming the refresh actually worked.
-- **Manual Force-Refresh**: Touch `/tmp/force_refresh` inside the container to trigger an immediate refresh cycle on the next keep-alive iteration — useful for debugging.
 - **Post-Refresh Validation**: After a scheduled refresh, validates that the page landed on the expected URL, no login/account-chooser page appeared, no "authentication error" banner is visible, and no "Login" button is displayed. If validation fails, cookies are NOT saved and a 5-minute retry is scheduled.
 ---
 
-> **Note:** The deployment scheme in this tutorial requires use with `CLIProxyAPI`. Before starting, ensure you have a running `CLIProxyAPI` instance.
+> **Note:** The deployment scheme in this tutorial requires use with `CLIProxyAPI`. Before starting, ensure you have a running `CLIProxyAPI` instance on your device.
 
 CLIProxyAPI v6.3.x and later supports connecting AI Providers via WebSocket, and was the first to support AIStudio.
 
