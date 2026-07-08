@@ -171,17 +171,18 @@ def run_browser_instance(config, shutdown_event=None):
                 if expected_path and expected_path in final_path:
                     logger.info(f"URL validation passed. Expected path: {mask_path_for_logging(expected_path)}")
 
-                    # --- New robust strategy: wait for loading indicator to disappear ---
-                    # Key to solving race conditions. Error messages or content only appear after initial load is finished.
+                    # --- Dismiss popups early (Continue to the app, Skip, etc.) ---
+                    handle_popup_dialog(page, logger=logger)
+
+                    # --- Wait for loading indicator only if it actually exists ---
                     spinner_locator = page.locator('mat-spinner').first
                     try:
-                        logger.info("Waiting for loading indicator (spinner) to disappear... (waiting up to 30 seconds)")
+                        spinner_locator.wait_for(state='attached', timeout=3000)
+                        logger.info("Spinner detected, waiting for it to disappear...")
                         spinner_locator.wait_for(state='hidden', timeout=30000)
                         logger.info("Loading indicator disappeared. Page async loading complete")
                     except TimeoutError:
-                        logger.error("Page loading indicator did not disappear within 30 seconds. Page might be stuck")
-                        page.screenshot(path=os.path.join(screenshot_dir, f"FAIL_spinner_stuck_{diagnostic_tag}.png"))
-                        raise KeepAliveError("Page loading indicator timed out")
+                        logger.info("No loading spinner detected or already gone; proceeding")
 
                     # --- Now we can safely check for error messages ---
                     # Use most specific text to avoid misjudgment
