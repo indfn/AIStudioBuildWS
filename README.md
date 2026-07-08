@@ -44,7 +44,7 @@ Method 2: Use the privacy mode of a normal browser like Chrome, log in to https:
 
 ![](https://img.072899.xyz/2025/11/51f860bf363cab01aa4c3fd5181b7f72.png)
 
-### Step 3 (1): Deploy HuggingFace Space
+### Step 3 (1): Deploy HuggingFace Space (Less Stable)
 
 Open https://huggingface.co/spaces/hkfires/AIStudioBuildWS and duplicate the Space. Fill in the link to the program prepared in the first step at `CAMOUFOX_INSTANCE_URL`, fill in the Cookie prepared in the second step at `USER_COOKIE_1`, and click Duplicate Space.
 
@@ -60,7 +60,7 @@ If there are multiple accounts, refer to `USER_COOKIE_1` and add environment var
 
 **Important Reminder:** Cookies are sensitive information. Please **be sure to use "Secrets"** (not "Variables") to store them to prevent Cookie leakage.
 
-### Step 3 (2): Server Docker Deployment
+### Step 3 (2): Server Docker Deployment (Recommended)
 
 If you have your own server (VPS), you can also use Docker Compose for deployment.
 
