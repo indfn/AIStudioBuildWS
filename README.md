@@ -66,7 +66,7 @@ If you have your own server (VPS), you can also use Docker Compose for deploymen
 
 1.  **Download code**
     ```bash
-    git clone https://github.com/hkfires/AIStudioBuildWS.git
+    git clone https://github.com/indfn/AIStudioBuildWS.git
     cd AIStudioBuildWS
     ```
 
